@@ -21,6 +21,7 @@ public final class FacadePatternExample {
 
     public static final class InventoryService {
         public boolean isAvailable(String product) {
+        	// db query for product
             System.out.println("Checking inventory for " + product);
             return true;
         }

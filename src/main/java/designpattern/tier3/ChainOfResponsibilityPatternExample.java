@@ -43,7 +43,7 @@ public final class ChainOfResponsibilityPatternExample {
     }
 
     public static final class TeamLead extends ExpenseApprover {
-        @Override
+    	@Override
         protected boolean canApprove(double amount) {
             return amount <= 1_000;
         }
@@ -71,7 +71,7 @@ public final class ChainOfResponsibilityPatternExample {
         teamLead.setNext(new Manager());
 
         teamLead.approve(500.0);
-        teamLead.approve(5_000.0);
-        teamLead.approve(50_000.0);
+        teamLead.approve(5000.0);
+        teamLead.approve(50000.0);
     }
 }

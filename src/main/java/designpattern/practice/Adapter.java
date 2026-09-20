@@ -1,54 +1,32 @@
-package designpattern.tier3;
+package designpattern.practice;
 
-/**
- * Adapter Pattern
- *
- * Intent: Convert one interface into another interface that a client expects.
- *
- * Use when: Existing or third-party code has an incompatible API.
- *
- * Examples: Converting XML responses to JSON; wrapping a legacy payment gateway;
- * adapting an old logging library to a new application interface.
- *
- * Structure: XmlToJsonAdapter implements JsonDataReader (the target interface) and
- * delegates to XmlDataSource (the adaptee), converting its XML output to JSON.
- *
- * Benefit: Reuses existing code without changing either client or adaptee.
- *
- * Tradeoff: Adds an extra layer that can hide API mismatches.
- */
-public final class AdapterPatternExample {
-    private AdapterPatternExample() {
-    }
+public class Adapter {
+	
+	private static class XmlDataSource {
+		private String getXMLContent() {
+            return "<user><name>John</name><age>25</age></user>";			
+		}
+	}
+	
+	private static interface JsonDataReader {
+        String readAsJson();		
+	}
+	
+	private static class XmlToJsonAdapter implements JsonDataReader {
+		private XmlDataSource xmlDataSource;
+		
+		XmlToJsonAdapter(XmlDataSource _xmlDataSource) {
+			xmlDataSource = _xmlDataSource;
+		}
 
-    // Target interface expected by the client: JSON output.
-    public interface JsonDataReader {
-        String readAsJson();
-    }
+		@Override
+		public String readAsJson() {
+			// TODO Auto-generated method stub
+			String xmlContent = xmlDataSource.getXMLContent();
+			return xmlToJson(xmlContent);
+		}
 
-    // Adaptee: an existing service that only produces XML.
-    public static final class XmlDataSource {
-        public String readAsXml() {
-            return "<user><name>John</name><age>25</age></user>";
-        }
-    }
-
-    // Adapter: converts the adaptee's XML output into the JSON the client expects.
-    public static final class XmlToJsonAdapter implements JsonDataReader {
-        private final XmlDataSource xmlDataSource;
-
-        public XmlToJsonAdapter(XmlDataSource xmlDataSource) {
-            this.xmlDataSource = xmlDataSource;
-        }
-
-        @Override
-        public String readAsJson() {
-            String xml = xmlDataSource.readAsXml();
-            return convertXmlToJson(xml);
-        }
-
-        // Minimal, dependency-free conversion for demonstration purposes only.
-        private String convertXmlToJson(String xml) {
+		private String xmlToJson(String xml) {
             StringBuilder json = new StringBuilder("{");
             String remaining = xml.trim();
             boolean firstField = true;
@@ -87,7 +65,7 @@ public final class AdapterPatternExample {
                 }
                 json.append("\"").append(tagName).append("\":");
                 if (content.contains("<")) {
-                    json.append(convertXmlToJson(content));
+                    json.append(xmlToJson(content));
                 } else {
                     json.append("\"").append(content.replace("\"", "\\\"")).append("\"");
                 }
@@ -98,10 +76,14 @@ public final class AdapterPatternExample {
             json.append("}");
             return json.toString();
         }
-    }
+		
+	}
 
-    public static void main(String[] args) {
-        JsonDataReader reader = new XmlToJsonAdapter(new XmlDataSource());
-        System.out.println(reader.readAsJson());
-    }
+	public static void main(String[] args) {
+		// TODO Auto-generated method stub
+		XmlDataSource source = new XmlDataSource();
+		JsonDataReader reader = new XmlToJsonAdapter(source);
+		String jsonVal = reader.readAsJson();
+	}
+
 }

@@ -1,5 +1,8 @@
 package designpattern.tier3;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * Mediator Pattern
  *
@@ -20,22 +23,27 @@ public final class MediatorPatternExample {
     }
 
     public interface ChatMediator {
-        void send(String message, ChatUser sender);
+        void sendMessage(String message, ChatUser sender);
+
+        void addUser(ChatUser user);
     }
 
     public static final class ChatRoom implements ChatMediator {
-        private ChatUser firstUser;
-        private ChatUser secondUser;
+        private List<ChatUser> users = new ArrayList<ChatUser>();
 
-        public void addUsers(ChatUser firstUser, ChatUser secondUser) {
-            this.firstUser = firstUser;
-            this.secondUser = secondUser;
+        @Override
+        public void addUser(ChatUser user) {
+            users.add(user);
         }
 
         @Override
-        public void send(String message, ChatUser sender) {
-            ChatUser receiver = sender == firstUser ? secondUser : firstUser;
-            receiver.receive(message);
+        public void sendMessage(String message, ChatUser sender) {
+            for (ChatUser user : users) {
+                // Don't send message back to sender
+                if (user != sender) {
+                    user.receiveMessage(message);
+                }
+            }
         }
     }
 
@@ -48,22 +56,31 @@ public final class MediatorPatternExample {
             this.mediator = mediator;
         }
 
-        public void send(String message) {
-            mediator.send(message, this);
+        public void sendMessage(String message) {
+            System.out.println(name + " sends: " + message);
+            mediator.sendMessage(message, this);
         }
 
-        public void receive(String message) {
+        public void receiveMessage(String message) {
             System.out.println(name + " received: " + message);
         }
     }
 
     public static void main(String[] args) {
-        ChatRoom room = new ChatRoom();
-        ChatUser alice = new ChatUser("Alice", room);
-        ChatUser bob = new ChatUser("Bob", room);
-        room.addUsers(alice, bob);
+        ChatMediator chatRoom = new ChatRoom();
 
-        alice.send("Hello, Bob");
-        bob.send("Hello, Alice");
+        ChatUser alice = new ChatUser("Alice", chatRoom);
+        ChatUser bob = new ChatUser("Bob", chatRoom);
+        ChatUser charlie = new ChatUser("Charlie", chatRoom);
+
+        chatRoom.addUser(alice);
+        chatRoom.addUser(bob);
+        chatRoom.addUser(charlie);
+
+        alice.sendMessage("Hello everyone!");
+
+        System.out.println();
+
+        bob.sendMessage("Hi Alice!");
     }
 }
