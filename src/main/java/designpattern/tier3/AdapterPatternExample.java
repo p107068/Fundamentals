@@ -1,8 +1,7 @@
 package designpattern.tier3;
 
 /**
- * Adapter Pattern
- *
+ * Adapter Pattern *
  * Intent: Convert one interface into another interface that a client expects.
  *
  * Use when: Existing or third-party code has an incompatible API.
