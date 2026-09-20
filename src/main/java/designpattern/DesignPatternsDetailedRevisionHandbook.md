@@ -362,6 +362,14 @@ Look for signals like:
 - Ignoring thread-safety and lifecycle concerns
 - Using Singleton when dependency injection is a better fit
 
+### 🔹 Interview Examples
+
+- Shared application configuration loaded once across the system
+- One database connection manager reused by all services
+- Centralized logging service that must remain unique
+- Global cache used to avoid duplicate in-memory stores
+- Feature flag registry that must stay consistent across modules
+
 ### 🔹 Related Patterns
 
 - Singleton vs Dependency Injection
@@ -493,6 +501,14 @@ Look for:
 - Instantiating all products directly in the client
 - Using a giant if/else without centralizing logic
 
+### 🔹 Interview Examples
+
+- Vehicle creation based on type such as car, bike, or truck
+- Notification channel selection like email, SMS, or push
+- Payment processor selection depending on the business rule
+- File export creation for PDF, CSV, or Excel formats
+- Database connection creation based on environment or vendor
+
 ### 🔹 Related Patterns
 
 - Factory vs Abstract Factory
@@ -620,6 +636,14 @@ Look for:
 - Forgetting that subclass creation is the key idea
 - Using inheritance where composition or simple factory is enough
 
+### 🔹 Interview Examples
+
+- Restaurant subclass decides whether to create pizza or burger
+- Shipping service decides packaging type based on the region
+- Document generator chooses CSV or JSON writer per subclass
+- Report implementation decides which source format to read
+- Application subclass creates platform-specific resource objects
+
 ### 🔹 Related Patterns
 
 - Factory Method vs Simple Factory
@@ -739,6 +763,14 @@ Look for:
 - Mixing up Abstract Factory with Factory Method
 - Claiming that Abstract Factory is just a single “factory” class
 - Ignoring the “related family” requirement
+
+### 🔹 Interview Examples
+
+- Light theme creates light button and light checkbox together
+- Dark mode UI creates a consistent dark family of controls
+- Database driver family for MySQL, Oracle, or PostgreSQL
+- OS-specific widget factory for Windows, Linux, and macOS
+- Messaging toolkit that creates sender and receiver objects together
 
 ### 🔹 Related Patterns
 
@@ -869,6 +901,14 @@ Look for:
 - Forgetting immutability or final fields
 - Building invalid object state without validation
 
+### 🔹 Interview Examples
+
+- User object built with name, age, address, and preferences
+- HTTP request object built with headers, method, and payload
+- SQL query builder assembling filters, joins, and ordering
+- Order object constructed step by step with optional discounts
+- API request builder with authentication, retries, and timeout options
+
 ### 🔹 Related Patterns
 
 - Builder vs Prototype
@@ -981,6 +1021,14 @@ Look for:
 - Confusing prototype with builder
 - Ignoring shallow vs deep copy concerns
 - Forgetting that cloning must produce an independent object
+
+### 🔹 Interview Examples
+
+- Game character cloned to create multiple variants from a base template
+- Product configuration copied to create new order templates
+- Document template duplicated and then customized for different clients
+- Cached object prototype used to create many similar runtime instances
+- Machine configuration copied to spawn multiple identical environments
 
 ### 🔹 Related Patterns
 
@@ -1107,6 +1155,14 @@ Look for:
 - Confusing Adapter with Facade
 - Saying the adapter “changes behavior” rather than “changes interface”
 - Using it when refactoring would be cheaper and simpler
+
+### 🔹 Interview Examples
+
+- XML source adapted to JSON reader for a client expecting JSON
+- Legacy payment gateway wrapped to match a new payment interface
+- Old logging system adapted to modern logger contract
+- Third-party service connected to internal repository abstraction
+- Database access layer adapted for a new API without changing legacy logic
 
 ### 🔹 Related Patterns
 
@@ -1242,6 +1298,14 @@ Look for:
 - Forgetting that decorators implement the same interface
 - Not recognizing the composition chain
 
+### 🔹 Interview Examples
+
+- Coffee with milk and sugar layered dynamically
+- Input stream with buffering, compression, and encryption wrappers
+- Secure service decorated with validation and logging behavior
+- User account with audit logging and metrics decorators
+- Cache wrapper around a database service to add memoization
+
 ### 🔹 Related Patterns
 
 - Decorator vs Proxy
@@ -1366,6 +1430,14 @@ Look for:
 - Confusing it with an adapter
 - Forgetting that the subsystem remains intact under the facade
 
+### 🔹 Interview Examples
+
+- Order placement that internally checks inventory, payment, and shipping
+- Hotel booking flow wrapped behind a single booking facade
+- Bank transfer operation hiding validation, ledger, and notification services
+- Email sending workflow orchestrated behind a unified API
+- User registration flow coordinating profile, auth, and welcome services
+
 ### 🔹 Related Patterns
 
 - Facade vs Mediator
@@ -1485,6 +1557,14 @@ Look for:
 - Forgetting that leaf and composite share the same interface
 - Not recognizing the recursive tree relationship
 - Over-engineering without a true tree structure
+
+### 🔹 Interview Examples
+
+- File system with files and folders handled uniformly
+- Organization chart where managers and employees share the same node interface
+- UI menu tree with parent and child menu items
+- Product category hierarchy with nested subcategories
+- Document tree for chapters, sections, and paragraphs
 
 ### 🔹 Related Patterns
 
@@ -1608,6 +1688,14 @@ Look for:
 - Confusing Proxy with Decorator
 - Forgetting that a proxy usually protects or controls access
 - Using it where a simple method call is enough
+
+### 🔹 Interview Examples
+
+- Authorized document access that checks user role before opening a file
+- Lazy-loaded image or large object fetched only on demand
+- Remote API proxy that adds caching and retry behavior
+- Payment service proxy that enforces rate limiting and logging
+- Secure report service blocking access for unauthorized users
 
 ### 🔹 Related Patterns
 
@@ -1739,6 +1827,14 @@ If the interviewer says:
 - Forgetting that the client injects or chooses the strategy
 - Not separating the algorithm from the context
 
+### 🔹 Interview Examples
+
+- Payment method switching between card, UPI, and cash
+- Search algorithm switching between DFS, BFS, or A* logic
+- Sorting strategy selected based on data size or requirements
+- Compression strategy chosen by file type and performance need
+- Routing logic varying by country or service preference
+
 ### 🔹 Related Patterns
 
 - Strategy vs State
@@ -1866,6 +1962,14 @@ Look for:
 - Mixing up Observer with callback methods or direct method calls
 - Forgetting the subject keeps a list of observers
 - Thinking Observer means only a single listener
+
+### 🔹 Interview Examples
+
+- Email and mobile subscribers notified when an order ships
+- Stock price updates sent to multiple trading dashboards
+- Chat room participants receiving new message notifications
+- Inventory watchers triggering restock alerts
+- UI components reacting to state changes from a model
 
 ### 🔹 Related Patterns
 
@@ -1996,6 +2100,14 @@ Look for:
 - Forgetting that the context delegates to the state object
 - Not explaining state transitions clearly
 
+### 🔹 Interview Examples
+
+- Vending machine moving from idle to has-money to dispensing
+- ATM states such as idle, card-verified, and transaction-complete
+- Order lifecycle moving from placed to packed to shipped
+- Traffic light states of red, yellow, and green
+- Ticket status transitions from new to in-progress to closed
+
 ### 🔹 Related Patterns
 
 - Strategy vs State
@@ -2118,6 +2230,14 @@ Look for:
 - Forgetting the template method is final and controls the algorithm flow
 - Saying this is just a simple abstract class without the fixed order concept
 - Not describing which steps are fixed and which are customizable
+
+### 🔹 Interview Examples
+
+- Report generation with common export flow but different data sources
+- CSV and JSON report writers sharing the same generation algorithm
+- Article publishing pipeline with common validation and finalization steps
+- Data import templates that vary by file format but keep flow consistent
+- Invoice generation where formatting differs per client but process is fixed
 
 ### 🔹 Related Patterns
 
@@ -2251,6 +2371,14 @@ Look for:
 - Forgetting that the command encapsulates a request, not just a behavior selection
 - Ignoring the invoker/receiver separation
 
+### 🔹 Interview Examples
+
+- Remote control mapping button presses to device actions
+- Undo/redo commands for text editing or drawing apps
+- Job queue storing actions to execute later
+- Transaction workflow where each step is wrapped as a command
+- Workflow automation where operations are logged and replayed
+
 ### 🔹 Related Patterns
 
 - Command vs Strategy
@@ -2371,6 +2499,14 @@ Look for:
 - Forgetting that the sender does not explicitly select the handler
 - Confusing chain-of-responsibility with an if-else chain
 - Not explaining the `next` pointer or chain order
+
+### 🔹 Interview Examples
+
+- Expense approval from team lead to manager to finance
+- Authentication filters checking token, role, and policy in sequence
+- Logging filters capturing info, warning, and error levels progressively
+- Support ticket escalation from first-line to senior support
+- Request validation chain that blocks invalid or suspicious inputs
 
 ### 🔹 Related Patterns
 
@@ -2495,6 +2631,14 @@ Look for:
 - Confusing an iterator with a for-each loop itself
 - Forgetting that the iterator owns traversal state
 - Thinking Iterator is only for arrays
+
+### 🔹 Interview Examples
+
+- Playlist traversal over songs without exposing internal storage
+- Database cursor iterating rows from a query result
+- Custom collection iteration for user objects in a list-like structure
+- Tree traversal using a standard next/hasNext abstraction
+- Log reader iterating records one by one without exposing file details
 
 ### 🔹 Related Patterns
 
@@ -2626,6 +2770,14 @@ Look for:
 - Using Mediator when a simpler direct relationship would do
 - Forgetting that the mediator is a central orchestrator
 - Thinking it is just another version of Observer
+
+### 🔹 Interview Examples
+
+- Chat room where all users communicate through a mediator
+- Airport tower coordinating flights and runway assignments
+- UI dialog coordinating multiple components in one screen
+- Order processing service coordinating inventory, payment, and shipping
+- Multiplayer game lobby managing player interactions centrally
 
 ### 🔹 Related Patterns
 

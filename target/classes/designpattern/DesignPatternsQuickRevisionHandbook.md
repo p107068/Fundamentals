@@ -71,154 +71,120 @@ Prefer composition when behavior can vary independently.
 
 ---
 
-## 3) Most Relevant Interview Examples
-
-These are the 5 examples most likely to appear in LLD or interview discussions.
-
-1. Payment system
-   - Card, UPI, cash are interchangeable payment methods
-   - Pattern: Strategy
-   - Why it matters: same action, multiple algorithms
-
-2. Notification system
-   - Email + SMS subscribers receive updates from a subject
-   - Pattern: Observer
-   - Why it matters: event-driven broadcast model
-
-3. E-commerce order flow
-   - Inventory check → payment → shipping through one interface
-   - Pattern: Facade
-   - Why it matters: one clean API hides subsystem complexity
-
-4. Expense approval chain
-   - Team lead → manager → higher approval authority
-   - Pattern: Chain of Responsibility
-   - Why it matters: request flows through multiple handlers
-
-5. Vending machine / ATM
-   - Idle → money inserted → dispensing
-   - Pattern: State
-   - Why it matters: behavior changes by internal state
-
-> Interview rule: if the requirement is “same behavior with different implementation”, think Strategy; if it is “many listeners receive same event”, think Observer; if it is “one API over many subsystems”, think Facade; if it is “state-specific behavior”, think State.
-
-## 4) Quick Pattern Summary
+## 3) Quick Pattern Summary
 
 ### Singleton
 - Purpose: ensure one shared instance
 - Real repo example: `SingletonPatternExample.AppConfiguration`
-- Example: one app-wide config object shared across the system
+- Examples: app config, shared logger, environment settings
 - Interview clue: “only one instance”, “global config”
-- Use when: one global resource is required
-- Avoid when: DI is cleaner and better for testing
 
 ### Factory
 - Purpose: hide creation logic behind a factory
 - Real repo example: `VehicleFactory` in `FactoryPatternExample`
-- Example: `create("car")` returns a `Car`; `create("bike")` returns a `Bike`
+- Examples: vehicle creation, payment creation, notification creation
 - Interview clue: “create based on type”
-- Use when: object creation logic is complex or repeated
 
 ### Factory Method
 - Purpose: base class defines workflow; subclass decides creation
 - Real repo example: `Restaurant` and `PizzaRestaurant` in `FactoryMethodAbstractFactoryExample`
-- Example: `PizzaRestaurant` creates a `Pizza`; another subclass creates a `Burger`
+- Examples: restaurant meal creation, platform-specific widget creation
 - Interview clue: “same process, different product”
 
 ### Abstract Factory
 - Purpose: create families of related objects
 - Real repo example: `UiFactory`, `LightUiFactory`, `Button`, `CheckBox`
-- Example: `LightUiFactory` creates matching light button + checkbox
+- Examples: theme families, OS UI families, product families
 - Interview clue: “theme, platform, family of products”
 
 ### Builder
 - Purpose: construct complex object step by step
 - Real repo example: `User.Builder` in `BuilderPatternExample`
-- Example: `new User.Builder().name(...).age(...).email(...).build()`
+- Examples: user creation, HTTP request builder, database query builder
 - Interview clue: “many optional parameters”, “fluent build API”
 
 ### Prototype
 - Purpose: clone an existing configured object
 - Real repo example: `GameCharacter.copy()` in `PrototypePatternExample`
-- Example: clone a warrior before applying damage to the copy
+- Examples: game characters, document templates, cloned configs
 - Interview clue: “copy existing object”, “clone and modify”
 
 ### Adapter
 - Purpose: make incompatible interfaces work together
 - Real repo example: `XmlToJsonAdapter` in `AdapterPatternExample`
-- Example: XML source converted to JSON reader without changing the client API
+- Examples: XML-to-JSON conversion, legacy API wrapper, database adapter
 - Interview clue: “existing API has different format”
 
 ### Decorator
 - Purpose: add behavior dynamically without subclassing
 - Real repo example: `CoffeeDecorator`, `MilkDecorator`, `SugarDecorator`
-- Example: `new MilkDecorator(new SugarDecorator(new SimpleCoffee()))`
+- Examples: coffee toppings, file compression, logging wrappers
 - Interview clue: “stack features”
 
 ### Facade
 - Purpose: provide a simple interface over a complex subsystem
 - Real repo example: `OrderFacade` in `FacadePatternExample`
-- Example: `placeOrder("Book", 499.0)` handles inventory + payment + shipping
+- Examples: checkout flow, order placement, booking systems
 - Interview clue: “simplify many services into one API”
 
 ### Composite
 - Purpose: treat individual objects and groups uniformly
 - Real repo example: `FileSystemItem`, `File`, `Folder`
-- Example: same `print()` works for a single file and a whole folder tree
+- Examples: file system, company hierarchy, UI component tree
 - Interview clue: “tree structure”, “leaf and group same treatment”
 
 ### Proxy
 - Purpose: control access to another object
 - Real repo example: `AuthorizedDocumentProxy` in `ProxyPatternExample`
-- Example: only authorized users can read a document
+- Examples: document access control, lazy-loaded image, remote API proxy
 - Interview clue: “authorization”, “lazy loading”, “stand-in object”
 
 ### Strategy
 - Purpose: encapsulate interchangeable algorithms
 - Real repo example: `PaymentStrategy` and `Payment` in `StrategyPatternExample`
-- Example: same checkout can use card, UPI, or cash strategy
+- Examples: payment methods, routing strategies, pricing strategies
 - Interview clue: “multiple algorithms”, “switch behavior at runtime”
 
 ### Observer
 - Purpose: notify multiple subscribers when state changes
 - Real repo example: `NotificationSubject`, `EmailSubscriber`, `MobileSubscriber`
-- Example: email and SMS subscribers get the same update event
+- Examples: email/SMS alerts, stock updates, pub-sub systems
 - Interview clue: “publish/subscribe”, “listeners”
 
 ### State
 - Purpose: object behavior changes with internal state
 - Real repo example: `VendingMachine`, `IdleState`, `HasMoneyState`, `DispensingState`
-- Example: idle → insert money → select item → dispensing
+- Examples: vending machine, ATM states, order lifecycle
 - Interview clue: “finite states”, “mode-based behavior”
 
 ### Template Method
 - Purpose: fixed algorithm skeleton; subclass customizes steps
 - Real repo example: `ReportGenerator` and `CsvReportGenerator`
-- Example: `generate()` calls `readData()` and `formatData()` for CSV or JSON
+- Examples: report generation, data import steps, workflow pipelines
 - Interview clue: “same process, different steps”
 
 ### Command
 - Purpose: encapsulate a request as an object
 - Real repo example: `RemoteControl`, `TurnOnLightCommand`, `TurnOffLightCommand`
-- Example: remote presses command object to turn the light on or off
+- Examples: remote control, undo/redo, scheduled jobs
 - Interview clue: “request object”, “queue/undo”
 
 ### Chain of Responsibility
 - Purpose: pass request through multiple handlers
 - Real repo example: `ExpenseApprover`, `TeamLead`, `Manager`
-- Example: team lead approves small amounts; manager approves bigger ones
+- Examples: approval chains, support escalation, authentication filters
 - Interview clue: “approval chain”, “pass through handlers”
 
 ### Iterator
 - Purpose: traverse collection without exposing internals
 - Real repo example: `Playlist implements Iterable<String>`
-- Example: `for (String song : playlist)` iterates without exposing the array
+- Examples: playlist traversal, menu iteration, custom collections
 - Interview clue: “iterate without exposing storage”
 
 ### Mediator
 - Purpose: centralize communication between objects
 - Real repo example: `ChatRoom` and `ChatUser` in `MediatorPatternExample`
-- Example: Alice sends to room; room forwards to Bob and Charlie
+- Examples: chat rooms, console dialogs, flight control coordination
 - Interview clue: “central hub”, “many objects talk via one mediator”
 
 ---
