@@ -1,0 +1,193 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760">
+  <defs>
+    <style>
+      .title { font: 700 36px 'Segoe UI', Arial, sans-serif; fill: #0d5f8b; }
+      .label { font: 700 18px 'Segoe UI', Arial, sans-serif; fill: #1f2a37; }
+      .small { font: 500 16px 'Segoe UI', Arial, sans-serif; fill: #1f2a37; }
+      .box { fill: #dfeff8; stroke: #2f3b46; stroke-width: 2; }
+      .box-green { fill: #dff3eb; stroke: #2f3b46; stroke-width: 2; }
+      .box-purple { fill: #ece7f6; stroke: #2f3b46; stroke-width: 2; }
+      .box-pink { fill: #f8e5ee; stroke: #2f3b46; stroke-width: 2; }
+      .box-orange { fill: #f8eadb; stroke: #d7862a; stroke-width: 2; }
+      .header-blue { fill: #bde0f4; stroke: #2f3b46; stroke-width: 2; }
+      .header-green { fill: #bfe7d1; stroke: #2f3b46; stroke-width: 2; }
+      .header-purple { fill: #d6c7ef; stroke: #2f3b46; stroke-width: 2; }
+      .header-pink { fill: #f3cfe1; stroke: #2f3b46; stroke-width: 2; }
+      .header-orange { fill: #f2d7ad; stroke: #d7862a; stroke-width: 2; }
+      .arrow { stroke: #2f3b46; stroke-width: 2.2; fill: none; marker-end: url(#arrowhead); }
+      .dotted { stroke: #2f3b46; stroke-width: 1.5; fill: none; stroke-dasharray: 6 6; marker-end: url(#arrowhead); }
+      .thin-line { stroke: #2f3b46; stroke-width: 1.6; fill: none; }
+      .method { font: 500 15px 'Consolas', monospace; fill: #1f2a37; }
+      .field { font: 500 15px 'Consolas', monospace; fill: #1f2a37; }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto">
+      <polygon points="0 0, 10 4, 0 8" fill="#2f3b46" />
+    </marker>
+  </defs>
+
+  <text x="600" y="34" text-anchor="middle" class="title">Elevator System — Class Diagram</text>
+
+  <g>
+    <rect x="30" y="70" width="250" height="210" class="box"/>
+    <rect x="30" y="70" width="250" height="32" class="header-blue"/>
+    <text x="155" y="92" text-anchor="middle" class="label">ElevatorSystem</text>
+    <text x="155" y="118" text-anchor="middle" class="small">&lt;&lt;Singleton&gt;&gt;</text>
+    <text x="48" y="150" class="field">- elevatorControllerList : List&lt;ElevatorController&gt;</text>
+    <text x="48" y="170" class="field">- elevatorControlStrategy : ElevatorControlStrategy</text>
+    <text x="48" y="190" class="field">- elevatorSelectionStrategy : ElevatorSelectionStrategy</text>
+    <text x="48" y="210" class="field">- floors : List&lt;Floor&gt;</text>
+    <text x="48" y="230" class="field">- INSTANCE : ElevatorSystem</text>
+    <text x="48" y="262" class="method">+ ElevatorSystem()</text>
+    <text x="48" y="282" class="method">+ getInstance() : ElevatorSystem</text>
+    <text x="48" y="302" class="method">+ addElevator(elevator : ElevatorController) : void</text>
+    <text x="48" y="322" class="method">+ removeElevator(id : int) : void</text>
+    <text x="48" y="342" class="method">+ setElevatorControlStrategy(strategy : ElevatorControlStrategy) : void</text>
+    <text x="48" y="362" class="method">+ setElevatorSelectionStrategy(strategy : ElevatorSelectionStrategy) : void</text>
+    <text x="48" y="382" class="method">+ addFloor(floor : Floor) : void</text>
+  </g>
+
+  <g>
+    <rect x="340" y="110" width="260" height="195" class="box"/>
+    <rect x="340" y="110" width="260" height="32" class="header-blue"/>
+    <text x="470" y="132" text-anchor="middle" class="label">ElevatorController</text>
+    <text x="360" y="168" class="field">- id : int</text>
+    <text x="360" y="188" class="field">- elevatorCar : ElevatorCar</text>
+    <text x="360" y="208" class="field">- elevatorControlStrategy : ElevatorControlStrategy</text>
+    <text x="360" y="228" class="field">- pendingRequests : PendingRequests</text>
+    <text x="360" y="250" class="method">+ ElevatorController(id : int, elevatorCar : ElevatorCar)</text>
+    <text x="360" y="270" class="method">+ acceptRequest(floor : int, dir : Direction) : void</text>
+    <text x="360" y="290" class="method">+ controlCar() : void</text>
+    <text x="360" y="310" class="method">+ moveElevator() : void</text>
+  </g>
+
+  <g>
+    <rect x="690" y="110" width="250" height="210" class="box"/>
+    <rect x="690" y="110" width="250" height="32" class="header-blue"/>
+    <text x="815" y="132" text-anchor="middle" class="label">ElevatorCar</text>
+    <text x="712" y="168" class="field">- id : int</text>
+    <text x="712" y="188" class="field">- door : Door</text>
+    <text x="712" y="208" class="field">- display : Display</text>
+    <text x="712" y="228" class="field">- currentFloor : int</text>
+    <text x="712" y="248" class="field">- direction : Direction</text>
+    <text x="712" y="270" class="method">+ ElevatorCar(id : int)</text>
+    <text x="712" y="290" class="method">+ move(floor : int) : void</text>
+    <text x="712" y="310" class="method">+ pressButton(floor : int, dir : Direction) : void</text>
+    <text x="712" y="330" class="method">+ setDisplay(floor : int, dir : Direction) : void</text>
+  </g>
+
+  <g>
+    <rect x="963" y="130" width="200" height="110" class="box"/>
+    <rect x="963" y="130" width="200" height="32" class="header-blue"/>
+    <text x="1063" y="152" text-anchor="middle" class="label">Door</text>
+    <text x="980" y="175" class="field">- isOpen : void</text>
+    <text x="980" y="200" class="method">+ open() : void</text>
+    <text x="980" y="220" class="method">+ close() : void</text>
+  </g>
+
+  <g>
+    <rect x="958" y="270" width="210" height="110" class="box"/>
+    <rect x="958" y="270" width="210" height="32" class="header-blue"/>
+    <text x="1063" y="292" text-anchor="middle" class="label">Display</text>
+    <text x="975" y="315" class="field">- floor : int</text>
+    <text x="975" y="335" class="field">- dir : Direction</text>
+    <text x="975" y="360" class="method">+ setDisplay(floor : int, dir : Direction) : void</text>
+  </g>
+
+  <g>
+    <rect x="325" y="410" width="316" height="150" class="box"/>
+    <rect x="325" y="410" width="316" height="32" class="header-blue"/>
+    <text x="483" y="432" text-anchor="middle" class="label">Floor</text>
+    <text x="345" y="468" class="field">- id : int</text>
+    <text x="345" y="488" class="field">- display : Display</text>
+    <text x="345" y="508" class="field">- button : ExternalButton</text>
+    <text x="345" y="538" class="method">+ Floor(id : int)</text>
+    <text x="345" y="558" class="method">+ pressButton(dir : Direction) : void</text>
+  </g>
+
+  <g>
+    <rect x="700" y="410" width="180" height="150" class="box"/>
+    <rect x="700" y="410" width="180" height="32" class="header-blue"/>
+    <text x="790" y="432" text-anchor="middle" class="label">ExternalButton</text>
+    <text x="720" y="468" class="field">- dispatcher : ExternalDispatcher</text>
+    <text x="720" y="488" class="field">- direction : Direction</text>
+    <text x="720" y="518" class="method">+ ExternalButton(dispatcher : ExternalDispatcher)</text>
+    <text x="720" y="538" class="method">+ pressButton() : void</text>
+  </g>
+
+  <g>
+    <rect x="930" y="410" width="200" height="160" class="box"/>
+    <rect x="930" y="410" width="200" height="32" class="header-blue"/>
+    <text x="1030" y="432" text-anchor="middle" class="label">ExternalDispatcher</text>
+    <text x="950" y="468" class="small">&lt;&lt;Singleton&gt;&gt;</text>
+    <text x="950" y="490" class="field">- INSTANCE : ExternalDispatcher</text>
+    <text x="950" y="518" class="method">+ ExternalDispatcher()</text>
+    <text x="950" y="538" class="method">+ submitRequest(floor : int, dir : Direction) : void</text>
+    <text x="950" y="558" class="method">+ selectElevator() : ElevatorController</text>
+  </g>
+
+  <g>
+    <rect x="320" y="590" width="245" height="120" class="box-orange"/>
+    <rect x="320" y="590" width="245" height="32" class="header-orange"/>
+    <text x="442" y="612" text-anchor="middle" class="label">InternalButton</text>
+    <text x="340" y="648" class="field">- dispatcher : InternalDispatcher</text>
+    <text x="340" y="668" class="field">- floors : List&lt;Integer&gt;</text>
+    <text x="340" y="690" class="method">+ pressButton(floor : int) : void</text>
+  </g>
+
+  <g>
+    <rect x="620" y="590" width="290" height="120" class="box-orange"/>
+    <rect x="620" y="590" width="290" height="32" class="header-orange"/>
+    <text x="765" y="612" text-anchor="middle" class="label">InternalDispatcher</text>
+    <text x="640" y="648" class="field">- elevatorId : int</text>
+    <text x="640" y="668" class="field">- controller : ElevatorController</text>
+    <text x="640" y="690" class="method">+ submitRequest(floor : int, dir : Direction) : void</text>
+  </g>
+
+  <g>
+    <rect x="980" y="590" width="170" height="120" class="box-green"/>
+    <rect x="980" y="590" width="170" height="32" class="header-green"/>
+    <text x="1065" y="612" text-anchor="middle" class="label">ElevatorSelectionStrategy</text>
+    <text x="998" y="648" class="field">+ selectElevator(...) : ElevatorController</text>
+  </g>
+
+  <g>
+    <rect x="95" y="590" width="180" height="120" class="box-purple"/>
+    <rect x="95" y="590" width="180" height="32" class="header-purple"/>
+    <text x="185" y="612" text-anchor="middle" class="label">ElevatorControlStrategy</text>
+    <text x="114" y="648" class="field">+ moveElevator() : void</text>
+  </g>
+
+  <g>
+    <rect x="100" y="470" width="170" height="70" class="box-pink"/>
+    <rect x="100" y="470" width="170" height="30" class="header-pink"/>
+    <text x="185" y="490" text-anchor="middle" class="label">PendingRequests</text>
+    <text x="116" y="515" class="field">- floor : int</text>
+    <text x="116" y="532" class="field">- direction : Direction</text>
+  </g>
+
+  <path d="M 280 180 L 340 180" class="arrow"/>
+  <path d="M 600 180 L 690 180" class="arrow"/>
+  <path d="M 815 320 L 815 410" class="arrow"/>
+  <path d="M 615 470 L 700 470" class="arrow"/>
+  <path d="M 930 470 L 887 470" class="arrow"/>
+  <path d="M 442 590 L 442 560" class="arrow"/>
+  <path d="M 765 590 L 765 560" class="arrow"/>
+  <path d="M 1065 590 L 1065 570" class="arrow"/>
+  <path d="M 185 590 L 185 540" class="thin-line"/>
+  <path d="M 270 520 L 100 520" class="thin-line"/>
+  <path d="M 270 520 L 320 520" class="thin-line"/>
+  <path d="M 270 520 L 270 670" class="thin-line"/>
+  <path d="M 270 670 L 320 670" class="thin-line"/>
+
+  <g>
+    <text x="300" y="176" class="small">controls</text>
+    <text x="620" y="176" class="small">contains</text>
+    <text x="825" y="390" class="small">has</text>
+    <text x="640" y="456" class="small">uses</text>
+    <text x="895" y="456" class="small">has</text>
+    <text x="455" y="580" class="small">uses</text>
+    <text x="775" y="580" class="small">routes</text>
+    <text x="1075" y="580" class="small">selects</text>
+    <text x="200" y="560" class="small">pending</text>
+  </g>
+</svg>
