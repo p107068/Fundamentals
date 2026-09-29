@@ -2,6 +2,14 @@
 
 ![Parking lot class diagram](resource/parking-lot.png)
 
+## Revision Snapshot
+
+| Lens | Recall |
+| --- | --- |
+| Core model | Gate + ticket/session + spot + pricing + payment |
+| Design leverage | Allocation, pricing, and payment are policies behind focused interfaces |
+| Hard problem | Atomically claim a spot under concurrent entry and release it only after confirmed exit payment |
+
 ## 1. Problem Understanding
 
 We need to design a parking-lot system that can:
@@ -31,7 +39,7 @@ should require minimal changes to existing code.
 
 ---
 
-# 2. High-Level Architecture
+## 2. High-Level Architecture
 
 The system can be viewed as:
 
@@ -85,13 +93,13 @@ Free ParkingSpot
 
 ---
 
-# 3. Core Classes
+## 3. Core Classes
 
-## ParkingLot
+### ParkingLot
 
 `ParkingLot` is the main aggregate/root object.
 
-### Responsibilities
+#### Responsibilities
 
 * Maintain parking floors.
 * Maintain entry gates.
@@ -102,7 +110,7 @@ Free ParkingSpot
 * Maintain parking allocation strategy.
 * Maintain pricing strategy.
 
-### Important fields
+#### Important fields
 
 ```java
 class ParkingLot {
@@ -121,7 +129,7 @@ class ParkingLot {
 }
 ```
 
-### Important methods
+#### Important methods
 
 ```java
 addFloor(ParkingFloor floor)
@@ -138,7 +146,7 @@ exitVehicle(Ticket ticket,
             Payment payment)
 ```
 
-### Design observation
+#### Design observation
 
 `ParkingLot` coordinates the system but should **not implement every algorithm itself**.
 
@@ -164,7 +172,7 @@ This prevents `ParkingLot` from becoming a huge God class.
 
 ---
 
-# 4. ParkingFloor
+## 4. ParkingFloor
 
 Represents one floor of the parking lot.
 
@@ -180,7 +188,7 @@ class ParkingFloor {
 }
 ```
 
-### Responsibilities
+#### Responsibilities
 
 * Maintain parking spots on the floor.
 * Add parking spots.
@@ -188,7 +196,7 @@ class ParkingFloor {
 * Count available spots.
 * Update/display parking availability.
 
-### Methods
+#### Methods
 
 ```java
 addParkingSpot(ParkingSpot spot)
@@ -200,7 +208,7 @@ getTotalSpots()
 getAvailableSpotsCount(SpotType spotType)
 ```
 
-### Relationship
+#### Relationship
 
 ```text
 ParkingLot
@@ -216,7 +224,7 @@ One parking lot contains multiple floors.
 
 ---
 
-# 5. ParkingSpot
+## 5. ParkingSpot
 
 Represents an individual parking space.
 
@@ -238,7 +246,7 @@ class ParkingSpot {
 }
 ```
 
-### Responsibilities
+#### Responsibilities
 
 * Know whether the spot is free.
 * Know which vehicle occupies it.
@@ -246,7 +254,7 @@ class ParkingSpot {
 * Assign a vehicle.
 * Release the spot.
 
-### Methods
+#### Methods
 
 ```java
 isFree()
@@ -260,7 +268,7 @@ vacate()
 
 ---
 
-# 6. SpotType
+## 6. SpotType
 
 An enum describing the type of parking spot.
 
@@ -282,13 +290,13 @@ ELECTRIC
 ...
 ```
 
-### Why enum?
+#### Why enum?
 
 Because spot types are a fixed set of known categories.
 
 ---
 
-# 7. Vehicle
+## 7. Vehicle
 
 `Vehicle` represents a vehicle entering the parking lot.
 
@@ -301,7 +309,7 @@ class Vehicle {
 }
 ```
 
-### Methods
+#### Methods
 
 ```java
 getType()
@@ -313,7 +321,7 @@ The base class contains common vehicle information.
 
 ---
 
-# 8. Vehicle Inheritance
+## 8. Vehicle Inheritance
 
 Different vehicles can have different parking requirements.
 
@@ -325,7 +333,7 @@ Different vehicles can have different parking requirements.
         Bike       Car      Truck
 ```
 
-### Bike
+#### Bike
 
 ```java
 class Bike extends Vehicle {
@@ -334,7 +342,7 @@ class Bike extends Vehicle {
 }
 ```
 
-### Car
+#### Car
 
 ```java
 class Car extends Vehicle {
@@ -343,7 +351,7 @@ class Car extends Vehicle {
 }
 ```
 
-### Truck
+#### Truck
 
 ```java
 class Truck extends Vehicle {
@@ -354,7 +362,7 @@ class Truck extends Vehicle {
 
 ---
 
-# 9. Why Vehicle Uses Inheritance?
+## 9. Why Vehicle Uses Inheritance?
 
 Suppose:
 
@@ -398,7 +406,7 @@ everywhere.
 
 ---
 
-# 10. Gate
+## 10. Gate
 
 `Gate` represents common functionality/properties of parking gates.
 
@@ -414,7 +422,7 @@ class Gate {
 }
 ```
 
-### Common methods
+#### Common methods
 
 ```java
 open()
@@ -423,7 +431,7 @@ close()
 
 ---
 
-# 11. Gate Inheritance
+## 11. Gate Inheritance
 
 ```text
                  Gate
@@ -437,7 +445,7 @@ This is useful because entry and exit gates share common properties but have dif
 
 ---
 
-# 12. EntryGate
+## 12. EntryGate
 
 The entry gate handles vehicle entry.
 
@@ -452,7 +460,7 @@ class EntryGate extends Gate {
 }
 ```
 
-### Entry flow
+#### Entry flow
 
 ```text
 Vehicle arrives
@@ -470,7 +478,7 @@ Vehicle enters
 
 ---
 
-# 13. ExitGate
+## 13. ExitGate
 
 The exit gate handles vehicle exit.
 
@@ -485,7 +493,7 @@ class ExitGate extends Gate {
 }
 ```
 
-### Exit flow
+#### Exit flow
 
 ```text
 Vehicle arrives at ExitGate
@@ -505,11 +513,11 @@ Vehicle exits
 
 ---
 
-# 14. Why Separate EntryGate and ExitGate?
+## 14. Why Separate EntryGate and ExitGate?
 
 Entry and exit have fundamentally different workflows.
 
-### Entry
+#### Entry
 
 ```text
 Find spot
@@ -517,7 +525,7 @@ Assign spot
 Generate ticket
 ```
 
-### Exit
+#### Exit
 
 ```text
 Calculate fee
@@ -531,7 +539,7 @@ This is an example of keeping classes focused on their responsibilities.
 
 ---
 
-# 15. Ticket
+## 15. Ticket
 
 A ticket represents a parking session.
 
@@ -553,7 +561,7 @@ class Ticket {
 }
 ```
 
-### Responsibilities
+#### Responsibilities
 
 * Track the vehicle.
 * Track the assigned parking spot.
@@ -562,7 +570,7 @@ class Ticket {
 * Store parking amount.
 * Store payment status.
 
-### Methods
+#### Methods
 
 ```java
 setExitTime(LocalDateTime time)
@@ -576,7 +584,7 @@ getParkingDuration()
 
 ---
 
-# 16. Why Ticket Is Important
+## 16. Why Ticket Is Important
 
 The ticket acts as the link between:
 
@@ -613,7 +621,7 @@ amount =
 
 ---
 
-# 17. Payment
+## 17. Payment
 
 Represents a payment transaction.
 
@@ -634,7 +642,7 @@ class Payment {
 }
 ```
 
-### Method
+#### Method
 
 ```java
 process()
@@ -642,7 +650,7 @@ process()
 
 ---
 
-# 18. PaymentMode
+## 18. PaymentMode
 
 ```java
 enum PaymentMode {
@@ -658,7 +666,7 @@ This makes adding another supported payment mode straightforward.
 
 ---
 
-# 19. PaymentStatus
+## 19. PaymentStatus
 
 ```java
 enum PaymentStatus {
@@ -681,7 +689,7 @@ PENDING
 
 ---
 
-# 20. PaymentProcessor
+## 20. PaymentProcessor
 
 Payment processing is separated behind an interface.
 
@@ -699,7 +707,7 @@ This is a very important design decision.
 
 ---
 
-# 21. Payment Processor Implementations
+## 21. Payment Processor Implementations
 
 ```text
              PaymentProcessor
@@ -741,7 +749,7 @@ class CardPaymentProcessor
 
 ---
 
-# 22. Why PaymentProcessor Is an Interface?
+## 22. Why PaymentProcessor Is an Interface?
 
 Without an interface, the exit gate might contain:
 
@@ -782,7 +790,7 @@ Adding UPI doesn't require changing the existing processors.
 
 ---
 
-# 23. PricingStrategy
+## 23. PricingStrategy
 
 Parking charges can change depending on business requirements.
 
@@ -797,7 +805,7 @@ interface PricingStrategy {
 
 ---
 
-# 24. Pricing Implementations
+## 24. Pricing Implementations
 
 ```text
              PricingStrategy
@@ -807,7 +815,7 @@ interface PricingStrategy {
      HourlyPricing     FlatPricing
 ```
 
-### Hourly
+#### Hourly
 
 ```java
 class HourlyPricingStrategy
@@ -819,7 +827,7 @@ class HourlyPricingStrategy
 }
 ```
 
-### Flat
+#### Flat
 
 ```java
 class FlatPricingStrategy
@@ -833,7 +841,7 @@ class FlatPricingStrategy
 
 ---
 
-# 25. Why PricingStrategy?
+## 25. Why PricingStrategy?
 
 Suppose today the parking lot charges:
 
@@ -881,7 +889,7 @@ This is the **Strategy Design Pattern**.
 
 ---
 
-# 26. SpotAllocationStrategy
+## 26. SpotAllocationStrategy
 
 The system also needs to decide **which available parking spot should be assigned**.
 
@@ -897,7 +905,7 @@ interface SpotAllocationStrategy {
 
 ---
 
-# 27. Allocation Implementations
+## 27. Allocation Implementations
 
 ```text
              SpotAllocationStrategy
@@ -907,7 +915,7 @@ interface SpotAllocationStrategy {
          NearestSpot      RandomSpot
 ```
 
-### Nearest Spot
+#### Nearest Spot
 
 ```java
 class NearestSpotAllocationStrategy
@@ -922,7 +930,7 @@ class NearestSpotAllocationStrategy
 }
 ```
 
-### Random Spot
+#### Random Spot
 
 ```java
 class RandomSpotAllocationStrategy
@@ -939,7 +947,7 @@ class RandomSpotAllocationStrategy
 
 ---
 
-# 28. Why SpotAllocationStrategy?
+## 28. Why SpotAllocationStrategy?
 
 Consider different parking businesses.
 
@@ -977,7 +985,7 @@ All of these can be implemented independently.
 
 ---
 
-# 29. DisplayBoard
+## 29. DisplayBoard
 
 A floor can have a display board showing availability.
 
@@ -1012,7 +1020,7 @@ The display board depends on parking-floor information but doesn't need to contr
 
 ---
 
-# 30. Complete Relationship Structure
+## 30. Complete Relationship Structure
 
 The main relationships can be visualized as:
 
@@ -1057,11 +1065,11 @@ ExitGate
 
 ---
 
-# 31. Composition vs Association
+## 31. Composition vs Association
 
 This is an important interview topic.
 
-## ParkingLot → ParkingFloor
+### ParkingLot → ParkingFloor
 
 A parking lot owns its floors.
 
@@ -1083,7 +1091,7 @@ A parking spot belongs to a particular floor.
 
 ---
 
-# 32. Strategy Relationship
+## 32. Strategy Relationship
 
 `ParkingLot` uses:
 
@@ -1106,9 +1114,9 @@ ParkingLot **has a strategy**, but it is not a strategy.
 
 ---
 
-# 33. Inheritance vs Composition
+## 33. Inheritance vs Composition
 
-### Inheritance
+#### Inheritance
 
 Used where there is a genuine **is-a** relationship.
 
@@ -1121,7 +1129,7 @@ EntryGate IS-A Gate
 ExitGate IS-A Gate
 ```
 
-### Composition / Association
+#### Composition / Association
 
 Used for **has-a / uses-a** relationships.
 
@@ -1141,11 +1149,11 @@ ExitGate USES PaymentProcessor
 
 ---
 
-# 34. Complete Entry Flow
+## 34. Complete Entry Flow
 
 Let's walk through the system as an interviewer would expect.
 
-### Step 1
+#### Step 1
 
 Vehicle arrives.
 
@@ -1153,7 +1161,7 @@ Vehicle arrives.
 Vehicle vehicle = new Car(...);
 ```
 
-### Step 2
+#### Step 2
 
 Vehicle reaches:
 
@@ -1161,7 +1169,7 @@ Vehicle reaches:
 EntryGate
 ```
 
-### Step 3
+#### Step 3
 
 Entry gate asks the parking lot to find a spot.
 
@@ -1169,7 +1177,7 @@ Entry gate asks the parking lot to find a spot.
 parkingLot.findParkingSpot(vehicle);
 ```
 
-### Step 4
+#### Step 4
 
 Parking lot delegates to:
 
@@ -1184,11 +1192,11 @@ spotAllocationStrategy.findSpot(
 );
 ```
 
-### Step 5
+#### Step 5
 
 Strategy finds a suitable `ParkingSpot`.
 
-### Step 6
+#### Step 6
 
 Spot is assigned.
 
@@ -1196,7 +1204,7 @@ Spot is assigned.
 spot.assignVehicle(vehicle);
 ```
 
-### Step 7
+#### Step 7
 
 Ticket is generated.
 
@@ -1207,7 +1215,7 @@ Ticket
  └── entryTime
 ```
 
-### Final state
+#### Final state
 
 ```text
 Vehicle
@@ -1219,13 +1227,13 @@ Ticket
 
 ---
 
-# 35. Complete Exit Flow
+## 35. Complete Exit Flow
 
-### Step 1
+#### Step 1
 
 Vehicle reaches `ExitGate`.
 
-### Step 2
+#### Step 2
 
 Ticket is provided.
 
@@ -1233,7 +1241,7 @@ Ticket is provided.
 Ticket ticket;
 ```
 
-### Step 3
+#### Step 3
 
 Exit time is recorded.
 
@@ -1241,7 +1249,7 @@ Exit time is recorded.
 ticket.setExitTime(now);
 ```
 
-### Step 4
+#### Step 4
 
 Pricing strategy calculates the amount.
 
@@ -1250,7 +1258,7 @@ double amount =
     pricingStrategy.calculatePrice(ticket);
 ```
 
-### Step 5
+#### Step 5
 
 Payment object is created.
 
@@ -1261,7 +1269,7 @@ Payment
  └── status
 ```
 
-### Step 6
+#### Step 6
 
 Payment processor processes it.
 
@@ -1272,7 +1280,7 @@ paymentProcessor.processPayment(
 );
 ```
 
-### Step 7
+#### Step 7
 
 If payment succeeds:
 
@@ -1280,7 +1288,7 @@ If payment succeeds:
 ticket.setStatus(SUCCESS);
 ```
 
-### Step 8
+#### Step 8
 
 Parking spot is released.
 
@@ -1288,13 +1296,13 @@ Parking spot is released.
 ticket.getParkingSpot().vacate();
 ```
 
-### Step 9
+#### Step 9
 
 Vehicle exits.
 
 ---
 
-# 36. Design Patterns Used
+## 36. Design Patterns Used
 
 ## 1. Strategy Pattern
 
@@ -1345,9 +1353,9 @@ without the caller checking the concrete type.
 
 ---
 
-# 37. SOLID Principles
+## 37. SOLID Principles
 
-## Single Responsibility Principle
+### Single Responsibility Principle
 
 Classes have focused responsibilities.
 
@@ -1367,7 +1375,7 @@ SpotAllocationStrategy → chooses spot
 
 ---
 
-## Open/Closed Principle
+### Open/Closed Principle
 
 The system should be open for extension but closed for modification.
 
@@ -1396,7 +1404,7 @@ can be added without changing the existing pricing implementations.
 
 ---
 
-## Liskov Substitution Principle
+### Liskov Substitution Principle
 
 A `Car` should be usable wherever a `Vehicle` is expected.
 
@@ -1414,7 +1422,7 @@ provided the subtype respects the base-class contract.
 
 ---
 
-## Interface Segregation Principle
+### Interface Segregation Principle
 
 Instead of one giant interface:
 
@@ -1432,7 +1440,7 @@ PaymentProcessor
 
 ---
 
-## Dependency Inversion Principle
+### Dependency Inversion Principle
 
 High-level components should depend on abstractions.
 
@@ -1460,9 +1468,9 @@ FlatPricingStrategy
 
 ---
 
-# 38. Important Interview Design Decision
+## 38. Important Interview Design Decision
 
-### Bad design
+#### Bad design
 
 ```java
 class ParkingLot {
@@ -1489,7 +1497,7 @@ class ParkingLot {
 
 This creates a large class with many reasons to change.
 
-### Better design
+#### Better design
 
 ```text
 ParkingLot
@@ -1505,13 +1513,13 @@ Each changing business rule is isolated.
 
 ---
 
-# 39. Extending the System
+## 39. Extending the System
 
 A good LLD keeps the allocation, pricing, and payment policies replaceable while preserving the invariants at the lot boundary.
 
 ---
 
-# 40. Staff-Level Deep Dive: Atomic Spot Allocation
+## 40. Staff-Level Deep Dive: Atomic Spot Allocation
 
 With multiple entry gates, “find a free spot, then mark it occupied” is a race. Model allocation as an atomic claim:
 

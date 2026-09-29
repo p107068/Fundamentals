@@ -1,6 +1,14 @@
-# Elevator System — LLD Notes
+# Elevator System — Low-Level Design
 
-![Elevator System Class Diagram](resource/elevator.png)
+![Elevator System Class Diagram](resource/elevator_image.png)
+
+## Revision Snapshot
+
+| Lens | Recall |
+| --- | --- |
+| Core model | Hall call + elevator car + per-car pending stops |
+| Design leverage | Selection assigns a car; control strategy orders that car's stops |
+| Hard problem | Preserve direction-aware calls through faults while keeping safety independent of dispatch optimization |
 
 ## 1. Main Requirements
 
@@ -17,7 +25,7 @@
 
 ## 2. Main Classes
 
-### ElevatorSystem
+#### ElevatorSystem
 
 * Central system / **Singleton**.
 * Maintains:
@@ -29,12 +37,12 @@
 * Adds/removes elevators and floors.
 * Allows strategies to be changed dynamically.
 
-### ElevatorController
+#### ElevatorController
 
 * One controller corresponds to one `ElevatorCar`.
 * Receives a request and passes it to the selected `ElevatorControlStrategy`.
 
-### ElevatorCar
+#### ElevatorCar
 
 Represents the actual elevator.
 
@@ -54,7 +62,7 @@ Responsibilities:
 * Update display.
 * Open/close door.
 
-### Floor
+#### Floor
 
 Contains:
 
@@ -64,12 +72,12 @@ Contains:
 
 When UP/DOWN is pressed, it sends an external request.
 
-### Door
+#### Door
 
 * `open()`
 * `close()`
 
-### Display
+#### Display
 
 Shows:
 
@@ -78,9 +86,9 @@ Shows:
 
 ---
 
-# 3. Buttons & Dispatchers
+## 3. Buttons & Dispatchers
 
-## ExternalButton
+### ExternalButton
 
 Used by a person waiting on a floor.
 
@@ -94,7 +102,7 @@ ExternalDispatcher
 Select Elevator
 ```
 
-## InternalButton
+### InternalButton
 
 Used by a person inside an elevator.
 
@@ -108,21 +116,21 @@ InternalDispatcher
 Specific ElevatorController
 ```
 
-### ExternalDispatcher
+#### ExternalDispatcher
 
 * Singleton.
 * Receives an external request.
 * Uses `ElevatorSelectionStrategy` to decide which elevator should handle it.
 * Sends the request to that elevator's controller.
 
-### InternalDispatcher
+#### InternalDispatcher
 
 * Finds the requested elevator using `elevatorId`.
 * Sends the request directly to its controller.
 
 ---
 
-# 4. Elevator Selection Strategy
+## 4. Elevator Selection Strategy
 
 This answers:
 
@@ -139,11 +147,11 @@ OddEven     Zone
 Strategy   Strategy
 ```
 
-### OddEvenStrategy
+#### OddEvenStrategy
 
 Conceptually assigns elevators based on odd/even elevator IDs and can consider whether the elevator is moving in the requested direction or is idle.
 
-### ZoneStrategy
+#### ZoneStrategy
 
 Divides the building into zones and assigns elevators according to those zones.
 
@@ -151,7 +159,7 @@ Divides the building into zones and assigns elevators according to those zones.
 
 ---
 
-# 5. Elevator Control Strategy
+## 5. Elevator Control Strategy
 
 This answers:
 
@@ -186,7 +194,7 @@ Elevator serves:
 8 → 2 → 10 → 5
 ```
 
-### Problem
+#### Problem
 
 The elevator may continuously change direction.
 
@@ -197,7 +205,7 @@ This can cause:
 
 ---
 
-# 7. Shortest Seek Time — SST
+## 7. Shortest Seek Time — SST
 
 Choose the request whose floor is **closest to the elevator's current floor**.
 
@@ -218,13 +226,13 @@ Next → 6
 
 Usually implemented using a **Min Heap** based on distance.
 
-### Problem
+#### Problem
 
 A far-away request can suffer **starvation** if nearby requests keep arriving.
 
 ---
 
-# 8. SCAN Algorithm ⭐
+## 8. SCAN Algorithm
 
 Think of SCAN like an elevator behaving like a **disk head**.
 
@@ -250,7 +258,7 @@ Requests:
 
 The elevator continues toward the **end of the building**, then reverses direction.
 
-### Important idea
+#### Important idea
 
 ```text
 UP requests   → UP array
@@ -269,12 +277,12 @@ While moving DOWN:
 * Continue toward the bottom/end.
 * Then reverse.
 
-### Advantage
+#### Advantage
 
 * Avoids frequent direction changes.
 * For a fixed, finite set of requests, a sweep eventually serves each compatible request.
 
-### Disadvantage
+#### Disadvantage
 
 Suppose the building has 100 floors:
 
@@ -296,7 +304,7 @@ even though nobody requested floors after 15.
 
 ---
 
-# 9. LOOK Algorithm ⭐⭐
+## 9. LOOK Algorithm
 
 LOOK is similar to SCAN, but it **does not travel all the way to the building's end**.
 
@@ -325,7 +333,7 @@ It reverses at **15**, because 15 is the last requested floor in that direction.
 
 It does NOT unnecessarily travel to floor 100.
 
-### Typical data structures
+#### Typical data structures
 
 **Min Heap**
 
@@ -339,30 +347,30 @@ It does NOT unnecessarily travel to floor 100.
 
 * Requests that cannot currently be served in the current direction.
 
-### LOOK advantages
+#### LOOK advantages
 
 * Less unnecessary movement than SCAN.
 * Avoids frequent direction changes.
 * Can reduce starvation for a fixed workload, but does not guarantee a wait-time bound under continuous arrivals.
 * More efficient because it travels only as far as needed by requests.
 
-### LOOK limitation
+#### LOOK limitation
 
 It does not prioritize requests based on urgency or importance.
 
 ---
 
-# 10. SCAN vs LOOK
+## 10. SCAN vs LOOK
 
 |                      | SCAN                      | LOOK                                    |
 | -------------------- | ------------------------- | --------------------------------------- |
 | Direction            | Continues to building end | Continues to last requested floor       |
 | Reverses when        | End is reached            | No request remains in current direction |
 | Unnecessary movement | More                      | Less                                    |
-| Starvation           | Not guaranteed under continuous arrivals | Not guaranteed under continuous arrivals |
+| Starvation           | No guaranteed wait bound under continuous arrivals | No guaranteed wait bound under continuous arrivals |
 | Main idea            | Full sweep                | Request-based sweep                     |
 
-### Easy way to remember
+#### Easy way to remember
 
 **SCAN:**
 
@@ -374,9 +382,9 @@ It does not prioritize requests based on urgency or importance.
 
 ---
 
-# 11. Overall Request Flow
+## 11. Overall Request Flow
 
-### External request
+#### External request
 
 ```text
 Floor
@@ -396,7 +404,7 @@ ElevatorCar
 Move + Door + Display
 ```
 
-### Internal request
+#### Internal request
 
 ```text
 ElevatorCar
@@ -414,16 +422,18 @@ ElevatorCar
 
 ---
 
-# 12. Design Patterns
+## 12. Design Patterns
 
-### Singleton
+#### Singleton
 
 Used for centralized objects such as:
 
 * `ElevatorSystem`
 * `ExternalDispatcher`
 
-### Strategy Pattern
+Singleton is optional, not a requirement of dispatch. Prefer one dispatcher per `ElevatorSystem`, injected into buttons/controllers; a process-wide singleton complicates multiple buildings, tests, and lifecycle management. An internal dispatcher can be shared per system or omitted when each car already holds its controller reference.
+
+#### Strategy Pattern
 
 Used at two different levels:
 
@@ -449,13 +459,13 @@ This makes the algorithms **interchangeable without changing the main elevator c
 
 ---
 
-## Interview One-Liner
+### Interview One-Liner
 
 > "I separate **which elevator to select** from **how that elevator should move** using two Strategy hierarchies. External requests go through the selection strategy, while the selected elevator processes pending requests using a control strategy such as FCFS, SST, SCAN, or LOOK."
 
 ---
 
-# 13. Staff-Level Deep Dive: Dispatch Is Not Safety
+## 13. Staff-Level Deep Dive: Dispatch Is Not Safety
 
 Keep the optimizer out of the safety path. Dispatch strategies may estimate arrival time, load, direction, zone, and fairness; independent safety controllers must enforce door interlocks, overspeed protection, braking, overload limits, and fault handling. A strategy bug may make service inefficient, but it must never make unsafe motion possible.
 

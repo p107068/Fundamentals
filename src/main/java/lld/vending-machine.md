@@ -2,2254 +2,1729 @@
 
 ![Vending machine class diagram](resource/vending-machine.png)
 
+## Revision Snapshot
+
+| Lens | Recall |
+| --- | --- |
+| Core model | Machine state + inventory reservation + payment session + dispenser |
+| Design leverage | State models allowed actions; Strategy selects payment behavior; inventory owns stock |
+| Hard problem | Payment, stock, and physical dispense are separate failure boundaries; make uncertainty recoverable |
+
 ## 1. Problem Statement
 
-Design a vending machine that can:
+Design a vending machine that:
 
-* Display available products.
-* Maintain product inventory.
-* Allow a user to select a product.
-* Accept coins/notes.
-* Validate the transaction.
-* Check product availability.
-* Check whether sufficient money has been inserted.
-* Dispense the selected product.
-* Return change.
-* Refund money when a transaction is cancelled.
-* Move through well-defined machine states.
-* Support validation through a **Chain of Responsibility**.
-* Keep payment handling extensible through a **Strategy-style abstraction**.
+* Stores multiple products.
+* Maintains product quantity.
+* Accepts different types of coins.
+* Supports cash and UPI payments.
+* Allows product selection.
+* Dispenses products.
+* Handles cancellation/refund.
+* Supports multiple machine states.
+* Allows new payment methods and states to be added without modifying the core machine.
 
-The important design challenge is not the vending machine itself. It is correctly modeling **state-dependent behavior**, **money handling**, **inventory**, and **validation without creating a giant conditional-heavy class**.
+The design primarily uses:
+
+* **State Design Pattern** → vending-machine behavior
+* **Strategy Design Pattern** → payment methods
+* **Composition** → machine owns inventory/payment/coin management
+* **Encapsulation** → inventory and payment operations are isolated behind dedicated classes.
 
 ---
 
-# 2. High-Level Architecture
-
-The design can be divided into five logical areas:
+## 2. High-Level Architecture
 
 ```text
-                    ┌─────────────────────┐
-                    │    VendingMachine   │
-                    │      (Context)      │
-                    └──────────┬──────────┘
-                               │
-          ┌────────────────────┼────────────────────┐
-          │                    │                    │
-          ▼                    ▼                    ▼
-      Inventory          PaymentProcessor       Dispenser
-          │                    │
-          │                    ├── CoinPaymentProcessor
-          │                    └── NotePaymentProcessor
-          │
-          ▼
-      ProductSlot
-          │
-          ▼
-       Product
+                    ┌──────────────────┐
+                    │  VendingMachine  │
+                    └────────┬─────────┘
+                             │
+          ┌──────────────────┼──────────────────┐
+          │                  │                  │
+          ▼                  ▼                  ▼
+ ProductInventory      PaymentProcessor     CoinManager
+          │                  │
+          ▼                  ▼
+      ItemShelf       PaymentStrategy
+                            │
+                     ┌──────┴──────┐
+                     ▼             ▼
+                CashPayment    UPIPayment
 
 
-VendingMachine
-      │
-      ├── Current State
-      │       ├── IdleState
-      │       ├── ProductSelectedState
-      │       ├── PaymentPendingState
-      │       └── DispensingState
-      │
-      └── Request Validation
-              │
-              ▼
-      VendingRequestHandler
-              │
-              ├── ProductValidationHandler
-              ↓
-        AvailabilityHandler
-              ↓
-        PaymentValidationHandler
-              ↓
-        MachineStateHandler
+                    VendingMachine
+                          │
+                          ▼
+                VendingMachineState
+                          │
+        ┌─────────────────┼─────────────────┐
+        ▼                 ▼                 ▼
+    IdleState      ReceiveMoneyState   SelectProductState
+                                              │
+                                              ▼
+                                      DispenseProductState
 ```
 
-The architecture intentionally separates:
-
-* **What the machine owns** → Inventory, products, slots.
-* **What the machine is doing** → State Pattern.
-* **How payment is processed** → PaymentProcessor abstraction.
-* **How physical dispensing happens** → Dispenser.
-* **How requests are validated** → Chain of Responsibility.
-
----
-
-# 3. Core Classes
-
-## 3.1 VendingMachine
-
-The `VendingMachine` is the central **Context / Orchestrator**.
-
-### Fields
-
-```java
-class VendingMachine {
-
-    private String id;
-    private String location;
-
-    private Inventory inventory;
-
-    private PaymentProcessor paymentProcessor;
-
-    private Dispenser dispenser;
-
-    private VendingMachineState state;
-
-    private VendingRequestHandler requestHandler;
-}
-```
-
-### Responsibilities
-
-It should:
-
-* Accept user actions.
-* Delegate behavior to the current state.
-* Maintain references to major components.
-* Initiate validation.
-* Coordinate payment.
-* Trigger dispensing.
-* Change state.
-* Return balance/refund.
-
-### Important principle
-
-`VendingMachine` should **not** contain all business logic.
-
-Bad:
-
-```java
-if(state == IDLE) {
-    ...
-} else if(state == PAYMENT_PENDING) {
-    ...
-} else if(state == DISPENSING) {
-    ...
-}
-```
-
-This quickly becomes difficult to maintain.
+The important architectural decision is that **VendingMachine does not contain state-specific business logic**.
 
 Instead:
 
 ```java
-state.selectProduct(code);
-state.insertMoney(amount);
-state.cancel();
+machine.getState().receiveMoney(...);
+machine.getState().selectProduct(...);
+machine.getState().cancelTransaction(...);
 ```
 
-The current state determines what the operation means.
-
-This is the primary reason for using the **State Pattern**.
+The current state decides what operation is valid and what the next state should be.
 
 ---
 
-# 4. Product
+## 3. Core Classes
 
-`Product` represents the actual merchandise.
+### VendingMachine
+
+The **Context** of the State pattern.
 
 ```java
-class Product {
+class VendingMachine {
 
-    private String code;
-    private String name;
-    private int price;
-    private ProductType type;
+    private VendingMachineState state;
+    private ProductInventory productInventory;
+    private PaymentProcessor paymentProcessor;
+    private CoinManager coinManager;
+
+    public void updateInventory() {}
+    public void updateState(VendingMachineState state) {}
+
+    public VendingMachineState getState() {}
+    public ProductInventory getProductInventory() {}
+    public PaymentProcessor getPaymentProcessor() {}
+    public CoinManager getCoinManager() {}
 }
 ```
 
-### Responsibilities
+#### Responsibilities
 
-Represents immutable product information.
+* Maintain the current state.
+* Provide access to inventory.
+* Provide access to payment processing.
+* Provide access to coin management.
+* Coordinate state transitions.
 
-Typical methods:
+#### Important
 
-```java
-getCode()
-getName()
-getPrice()
-getType()
-```
-
-### Important Design Decision
-
-Use the smallest currency unit:
-
-```text
-₹10.50 → 1050 paise
-$10.50 → 1050 cents
-```
-
-Avoid:
+`VendingMachine` should **not** contain:
 
 ```java
-double price;
+if (state == IDLE) ...
+else if (state == HAS_MONEY) ...
 ```
 
-because floating-point arithmetic can introduce monetary precision errors.
-
-Prefer:
-
-```java
-long priceInPaise;
-```
+That would defeat the purpose of the State pattern.
 
 ---
 
-# 5. ProductType
+## 4. State Design Pattern
 
-An enum represents the category.
+### Why State Pattern?
 
-```java
-enum ProductType {
-    SNACK,
-    BEVERAGE,
-    CANDY,
-    OTHER
-}
-```
-
-This prevents arbitrary string values such as:
-
-```text
-"snack"
-"SNACK"
-"Snack"
-"snaks"
-```
-
-from being treated as different values.
-
----
-
-# 6. ProductSlot
-
-A physical slot contains one type of product.
-
-```java
-class ProductSlot {
-
-    private String code;
-    private Product product;
-    private int quantity;
-}
-```
-
-Example:
-
-```text
-A1 → Coke → ₹40 → quantity 8
-A2 → Chips → ₹30 → quantity 5
-B1 → Chocolate → ₹50 → quantity 0
-```
-
-### Responsibilities
-
-* Determine whether slot is empty.
-* Return its product.
-* Increase quantity.
-* Decrease quantity.
-
-```java
-boolean isEmpty();
-
-Product getProduct();
-
-void decreaseQuantity();
-
-void increaseQuantity();
-```
-
-### Relationship
-
-```text
-ProductSlot ─────── contains ───────> Product
-      1                                1
-```
-
-A slot normally represents one product type.
-
----
-
-# 7. Inventory
-
-Inventory manages all slots.
-
-```java
-class Inventory {
-
-    private Map<String, ProductSlot> slots;
-}
-```
-
-Example:
-
-```text
-A1 → ProductSlot(Coke, 10)
-A2 → ProductSlot(Pepsi, 5)
-A3 → ProductSlot(Chips, 0)
-B1 → ProductSlot(Chocolate, 8)
-```
-
-### Responsibilities
-
-```java
-ProductSlot getSlot(String code);
-
-void addSlot(ProductSlot slot);
-
-void updateSlot(ProductSlot slot);
-
-List<Product> getAvailableProducts();
-```
-
-### Why Map?
-
-Using:
-
-```java
-Map<String, ProductSlot>
-```
-
-gives approximately:
-
-```text
-getSlot(code) → O(1)
-```
-
-instead of scanning every slot.
-
----
-
-# 8. Dispenser
-
-The `Dispenser` represents the physical mechanism responsible for releasing the product.
-
-```java
-class Dispenser {
-
-    boolean dispense(ProductSlot slot);
-
-    void addStock(ProductSlot slot, int quantity);
-
-    List<Product> getAvailableProducts();
-}
-```
-
-### Important Separation
-
-Inventory answers:
-
-> "Do we have the product?"
-
-Dispenser answers:
-
-> "Can we physically release it?"
-
-This separation is valuable because physical dispensing can eventually involve:
-
-* Motor control.
-* Sensor confirmation.
-* Jam detection.
-* Retry.
-* Hardware failure.
-* Door/open detection.
-
-A real implementation should not blindly decrement inventory before confirming successful dispensing.
-
----
-
-# 9. PaymentProcessor
-
-Payment is abstracted behind an interface.
-
-```java
-interface PaymentProcessor {
-
-    void insertMoney(int amount);
-
-    int getCurrentAmount();
-
-    boolean isPaymentSufficient(int price);
-
-    void refund();
-
-    void reset();
-}
-```
-
-This provides an abstraction between the vending machine and payment implementation.
-
----
-
-# 10. CoinPaymentProcessor
-
-Handles coin-based payments.
-
-```java
-class CoinPaymentProcessor
-        implements PaymentProcessor {
-
-    private int currentAmount;
-
-    void insertMoney(Coin coin);
-
-    int getCurrentAmount();
-
-    boolean isPaymentSufficient(int price);
-
-    void refund();
-
-    void reset();
-}
-```
-
-Example:
-
-```text
-User inserts:
-
-₹10
-₹10
-₹5
-
-currentAmount = ₹25
-```
-
----
-
-# 11. NotePaymentProcessor
-
-Handles notes.
-
-```java
-class NotePaymentProcessor
-        implements PaymentProcessor {
-
-    private int currentAmount;
-
-    void insertMoney(Note note);
-
-    int getCurrentAmount();
-
-    boolean isPaymentSufficient(int price);
-
-    void refund();
-
-    void reset();
-}
-```
-
-The machine can therefore support different payment mechanisms without changing the core vending-machine logic.
-
----
-
-# 12. Item / Money Hierarchy
-
-The diagram models a common abstraction for physical monetary items.
-
-```java
-abstract class Item {
-
-    protected int value;
-
-    int getValue();
-
-    boolean isValid();
-}
-```
-
-Concrete implementations:
-
-```java
-class Coin extends Item {
-
-    private int denomination;
-
-    int getDenomination();
-}
-```
-
-```java
-class Note extends Item {
-
-    private int denomination;
-
-    int getDenomination();
-}
-```
-
-Conceptually:
-
-```text
-                 Item
-                  ▲
-             ┌────┴────┐
-             │         │
-           Coin       Note
-```
-
-This allows common behavior to be shared while keeping coin and note-specific behavior separate.
-
----
-
-# 13. State Pattern
-
-This is the most important pattern in the vending-machine design.
-
-The machine's behavior changes depending on its current state.
+A vending machine behaves differently depending on its current state.
 
 For example:
 
-```text
-Idle
-  ↓
-Product Selected
-  ↓
-Payment Pending
-  ↓
-Dispensing
-  ↓
-Idle
-```
-
-A machine in `IdleState` should not behave the same way as a machine in `DispensingState`.
-
-Instead of implementing all possible behavior inside `VendingMachine`, we delegate to a state object.
-
----
-
-# 14. VendingMachineState
-
-The state abstraction can be:
-
-```java
-interface VendingMachineState {
-
-    void selectProduct(String code);
-
-    void insertMoney(int amount);
-
-    void cancel();
-}
-```
-
-The concrete states implement this interface.
-
----
-
-# 15. IdleState
-
-Represents the machine waiting for a customer.
-
-Typical behavior:
+#### Idle
 
 ```text
-selectProduct() → allowed
-insertMoney()   → generally rejected
-cancel()        → nothing to cancel
+receiveMoney()       → allowed
+selectProduct()      → not allowed
+dispenseProduct()    → not allowed
+cancelTransaction()  → not meaningful
 ```
 
-Flow:
+#### Receive Money
 
 ```text
-Idle
- ↓
-selectProduct("A1")
- ↓
-ProductSelectedState
+receiveMoney()       → add money
+selectProduct()      → potentially allowed depending on design
+cancelTransaction()  → refund
 ```
 
----
-
-# 16. ProductSelectedState
-
-A product has been selected.
-
-Responsibilities:
-
-* Validate selection.
-* Verify product exists.
-* Verify stock.
-* Store selected product/slot.
-* Wait for payment.
-
-Possible transition:
+#### Select Product
 
 ```text
-ProductSelectedState
-        ↓
-insertMoney()
-        ↓
-PaymentPendingState
+selectProduct()      → validate selection
+cancelTransaction()  → refund
 ```
 
-Depending on the implementation, the state may be combined with the payment state.
-
----
-
-# 17. PaymentPendingState
-
-The machine waits until enough money is inserted.
-
-Example:
+#### Dispense Product
 
 ```text
-Product price = ₹50
-
-Inserted = ₹20
-→ insufficient
-
-Inserted = ₹30
-→ total = ₹50
-→ sufficient
+dispenseProduct()    → dispense item
 ```
 
-Once payment becomes sufficient:
+If everything were implemented inside `VendingMachine`, we would get a large conditional structure.
 
-```text
-PaymentPendingState
-        ↓
-payment sufficient
-        ↓
-DispensingState
-```
-
----
-
-# 18. DispensingState
-
-This state performs the actual vending operation.
-
-Responsibilities:
-
-1. Retrieve selected slot.
-2. Confirm stock.
-3. Confirm payment.
-4. Dispense product.
-5. Update inventory.
-6. Calculate change.
-7. Return change.
-8. Reset payment session.
-9. Transition back to `IdleState`.
-
-Typical flow:
-
-```text
-DispensingState
-      │
-      ├── dispense product
-      │
-      ├── decrease inventory
-      │
-      ├── calculate change
-      │
-      ├── return change
-      │
-      └── IdleState
-```
-
----
-
-# 19. State Transition Table
-
-| Current State   | Operation     | Result                      |
-| --------------- | ------------- | --------------------------- |
-| Idle            | selectProduct | ProductSelected             |
-| Idle            | insertMoney   | Reject / invalid operation  |
-| ProductSelected | insertMoney   | PaymentPending              |
-| ProductSelected | cancel        | Idle                        |
-| PaymentPending  | insertMoney   | Remain / move to Dispensing |
-| PaymentPending  | cancel        | Refund + Idle               |
-| Dispensing      | selectProduct | Reject                      |
-| Dispensing      | insertMoney   | Reject                      |
-| Dispensing      | cancel        | Reject / already processing |
-| Dispensing      | completion    | Idle                        |
-
-The exact states can be simplified or expanded depending on interview requirements.
-
----
-
-# 20. Chain of Responsibility
-
-This is the additional pattern inspired by the referenced logging-system design.
-
-The **Chain of Responsibility (CoR)** pattern passes a request through a sequence of handlers. Each handler can process/reject the request or forward it to the next handler.
-
-For vending, the chain can validate a purchase request before the actual operation proceeds.
+Instead:
 
 ```text
 VendingMachine
       │
       ▼
-ProductValidationHandler
+VendingMachineState
       │
-      ▼
-AvailabilityHandler
-      │
-      ▼
-PaymentValidationHandler
-      │
-      ▼
-MachineStateHandler
+      ├── IdleState
+      ├── ReceiveMoneyState
+      ├── SelectProductState
+      └── DispenseProductState
 ```
+
+This makes adding another state much easier.
 
 ---
 
-# 21. Why Chain of Responsibility?
+## 5. VendingMachineState
 
-Without CoR, `VendingMachine` could become:
+The common state abstraction.
 
 ```java
-if(product == null) {
-    ...
-}
+interface VendingMachineState {
 
-if(product.isEmpty()) {
-    ...
-}
+    void receiveMoney(List<Coin> coins);
 
-if(payment < price) {
-    ...
-}
+    void addMoney(List<Coin> coins);
 
-if(machineState != ...) {
-    ...
-}
+    void cancelTransaction(VendingMachine machine);
 
-if(...) {
-    ...
+    void selectProduct(List<ItemShelf> items);
+
+    void dispenseProduct(List<ItemShelf> items);
+
+    void refund();
 }
 ```
 
-As validation rules increase, this becomes difficult to maintain.
+Every state implements the same interface.
 
-CoR separates each validation responsibility.
+#### Why common interface?
 
----
-
-# 22. VendingRequestHandler
-
-Base handler:
+The `VendingMachine` only needs to know:
 
 ```java
-abstract class VendingRequestHandler {
-
-    protected VendingRequestHandler next;
-
-    void setNext(VendingRequestHandler handler) {
-        this.next = handler;
-    }
-
-    abstract boolean handle(VendingRequest request);
-}
+VendingMachineState state;
 ```
 
-The critical field is:
-
-```java
-next
-```
-
-That is what forms the chain.
-
----
-
-# 23. VendingRequest
-
-A request object should contain the information required by the handlers.
-
-For example:
-
-```java
-class VendingRequest {
-
-    private String productCode;
-    private int insertedAmount;
-    private VendingMachine machine;
-}
-```
-
-A richer production implementation could contain:
-
-```java
-selectedSlot
-product
-paymentSession
-transactionId
-```
-
-The request object prevents us from passing a growing list of parameters through every handler.
-
----
-
-# 24. ProductValidationHandler
-
-Responsible for validating product selection.
-
-```java
-class ProductValidationHandler
-        extends VendingRequestHandler {
-
-    boolean handle(VendingRequest request) {
-
-        // validate product code
-
-        // if invalid:
-        // return false
-
-        return next == null ||
-               next.handle(request);
-    }
-}
-```
-
-Examples of failures:
+It does not need to know whether the state is:
 
 ```text
-Invalid product code
-Unknown slot
-Malformed request
+IdleState
+ReceiveMoneyState
+SelectProductState
+DispenseProductState
+```
+
+This gives us polymorphic behavior.
+
+---
+
+## 6. State Lifecycle
+
+The important state transition is:
+
+```text
+                 receiveMoney
+                     │
+                     ▼
+                ReceiveMoney
+                     │
+                selectProduct
+                     │
+                     ▼
+              SelectProduct
+                     │
+              dispenseProduct
+                     │
+                     ▼
+            DispenseProduct
+                     │
+                     ▼
+                   Idle
+```
+
+Cancellation can happen during a transaction:
+
+```text
+ReceiveMoney ────── cancel ──────► Idle
+SelectProduct ───── cancel ──────► Idle
+```
+
+Refund:
+
+```text
+transaction
+     │
+     ▼
+refund()
+     │
+     ▼
+return money
+     │
+     ▼
+IdleState
 ```
 
 ---
 
-# 25. AvailabilityHandler
+## 7. IdleState
 
-Checks whether the product is available.
+Initial state of the machine.
 
 ```java
-class AvailabilityHandler
-        extends VendingRequestHandler {
+class IdleState implements VendingMachineState {
 
-    boolean handle(VendingRequest request) {
-
-        // find slot
-
-        // verify quantity > 0
-
-        return next == null ||
-               next.handle(request);
+    public void receiveMoney(List<Coin> coins) {
+        // Accept money
+        // Move to ReceiveMoneyState
     }
+
+    public void addMoney(List<Coin> coins) {}
+
+    public void cancelTransaction(VendingMachine machine) {}
+
+    public void selectProduct(List<ItemShelf> items) {
+        // Reject
+    }
+
+    public void dispenseProduct(List<ItemShelf> items) {
+        // Reject
+    }
+
+    public void refund() {}
+}
+```
+
+#### Responsibility
+
+Accept the beginning of a transaction.
+
+```text
+IDLE
+  │
+  │ insert money
+  ▼
+RECEIVE MONEY
+```
+
+---
+
+## 8. ReceiveMoneyState
+
+Machine has received money.
+
+Responsibilities:
+
+* Track/add inserted money.
+* Allow cancellation.
+* Allow product selection.
+* Transition to product-selection state.
+
+```text
+ReceiveMoneyState
+        │
+        ├── add money
+        │
+        ├── cancel
+        │
+        └── select product
+                  │
+                  ▼
+          SelectProductState
+```
+
+---
+
+## 9. SelectProductState
+
+Responsible for selecting and validating products.
+
+Typical validation:
+
+```text
+Product exists?
+      │
+      ├── NO → reject
+      │
+      ▼
+Quantity > 0?
+      │
+      ├── NO → OUT OF STOCK
+      │
+      ▼
+Payment sufficient?
+      │
+      ├── NO → insufficient funds
+      │
+      ▼
+Product valid
+      │
+      ▼
+DispenseProductState
+```
+
+This state should not itself own inventory.
+
+Instead:
+
+```java
+machine.getProductInventory()
+```
+
+is used.
+
+---
+
+## 10. DispenseProductState
+
+Responsible for the actual dispensing operation.
+
+Typical flow:
+
+```text
+DispenseProductState
+        │
+        ▼
+Fetch selected ItemShelf
+        │
+        ▼
+Check quantity
+        │
+        ▼
+Remove item
+        │
+        ▼
+Update inventory
+        │
+        ▼
+Calculate change
+        │
+        ▼
+Return change
+        │
+        ▼
+IdleState
+```
+
+After successful completion:
+
+```text
+DispenseProductState → IdleState
+```
+
+This is important because a completed transaction must reset the machine.
+
+---
+
+## 11. ProductInventory
+
+Responsible for managing all product shelves.
+
+```java
+class ProductInventory {
+
+    private Map<String, ItemShelf> itemShelves;
+    private List<ItemShelf> shelves;
+
+    public void addShelf(ItemShelf shelf) {}
+
+    public void removeShelf(ItemShelf shelf) {}
+
+    public ItemShelf getShelf(String id) {}
+
+    public List<ItemShelf> getAllShelves() {}
+}
+```
+
+#### Why separate Inventory?
+
+Do not put this inside `VendingMachine`:
+
+```java
+Map<String, ItemShelf> shelves;
+```
+
+along with all inventory logic.
+
+Instead:
+
+```text
+VendingMachine
+      │
+      ▼
+ProductInventory
+      │
+      ▼
+ItemShelf
+```
+
+This gives us a clean **Single Responsibility** boundary.
+
+---
+
+## 12. ItemShelf
+
+Represents a physical/product slot.
+
+```java
+class ItemShelf {
+
+    private int id;
+    private ItemType type;
+    private int price;
+    private int quantity;
+
+    public void addItem(int id) {}
+
+    public void addItem(int id, int price) {}
+
+    public void removeItem(int id) {}
+
+    public int getPrice(int id) {}
+
+    public int getQuantity(int id) {}
+
+    public ItemType getItemType() {}
 }
 ```
 
 Example:
 
 ```text
-A1 → Coke → quantity = 0
-
-AvailabilityHandler
-        ↓
-REJECT
+Shelf A1
+────────────
+Product: Coke
+Price:   ₹40
+Quantity: 5
 ```
 
-No payment should be committed.
+The shelf abstraction is useful because the machine interacts with **slots**, rather than directly managing individual physical products.
 
 ---
 
-# 26. PaymentValidationHandler
+## 13. ItemType
 
-Checks whether payment is sufficient.
+An enum representing product types.
 
 ```java
-class PaymentValidationHandler
-        extends VendingRequestHandler {
+enum ItemType {
+    COKE,
+    PEPSI,
+    SODA,
+    WATER,
+    CHIPS,
+    CHOCOLATE,
+    CANDY
+}
+```
 
-    boolean handle(VendingRequest request) {
+Using an enum prevents arbitrary strings from representing product types.
 
-        // compare inserted amount
-        // against product price
+Instead of:
 
-        return next == null ||
-               next.handle(request);
-    }
+```java
+"Coke"
+```
+
+we use:
+
+```java
+ItemType.COKE
+```
+
+---
+
+## 14. Coin
+
+Represents a coin.
+
+```java
+class Coin {
+
+    private int id;
+    private int value;
+
+    public int getId() {}
+    public int getValue() {}
 }
 ```
 
 Example:
 
 ```text
-Product = ₹50
-Inserted = ₹30
+Coin
+ ├── id
+ └── value
+```
 
-PaymentValidationHandler
+The `id` can represent a physical coin instance, while `value` represents its denomination.
+
+---
+
+## 15. CoinType
+
+Useful abstraction for supported denominations.
+
+```java
+enum CoinType {
+    QUARTER(25),
+    DIME(10),
+    NICKEL(5),
+    PENNY(1);
+
+    private int value;
+}
+```
+
+For an Indian implementation, the enum could instead be:
+
+```java
+enum CoinType {
+    ONE(1),
+    TWO(2),
+    FIVE(5),
+    TEN(10),
+    TWENTY(20);
+}
+```
+
+The important idea is that **supported denominations are configurable**.
+
+---
+
+## 16. CoinManager
+
+Responsible for supported coins and coin-related operations.
+
+```java
+class CoinManager {
+
+    private Map<CoinType, Integer> coins;
+
+    public void addSupportedCoinType(CoinType type) {}
+
+    public void removeSupportedCoinType(CoinType type) {}
+
+    public Set<CoinType> getSupportedCoins() {}
+
+    public boolean isSupported(CoinType type) {}
+}
+```
+
+#### Why separate CoinManager?
+
+It prevents coin-handling logic from leaking into:
+
+```text
+VendingMachine
+PaymentProcessor
+Inventory
+States
+```
+
+This becomes particularly useful for:
+
+* Change calculation
+* Supported denominations
+* Coin validation
+* Coin availability
+* Future cash-management logic
+
+---
+
+## 17. PaymentProcessor
+
+Responsible for payment processing.
+
+```java
+class PaymentProcessor {
+
+    private List<PaymentStrategy> strategies;
+    private PaymentStatus status;
+
+    public void addStrategy(PaymentStrategy strategy) {}
+
+    public void removeStrategy(PaymentStrategy strategy) {}
+
+    public boolean pay(PaymentRequest request) {}
+
+    public void updateStatus(PaymentStatus status) {}
+
+    public PaymentStatus getStatus() {}
+}
+```
+
+The important design decision:
+
+> `PaymentProcessor` does not know how every payment method works.
+
+It delegates to a `PaymentStrategy`.
+
+---
+
+## 18. Strategy Design Pattern
+
+```text
+                 PaymentStrategy
+                       ▲
+                       │
+              ┌────────┴────────┐
+              │                 │
+         CashPayment        UPIPayment
+```
+
+Interface:
+
+```java
+interface PaymentStrategy {
+
+    boolean pay(PaymentRequest request);
+}
+```
+
+Implementations:
+
+```java
+class CashPayment implements PaymentStrategy {
+
+    public boolean pay(PaymentRequest request) {
+        // cash payment
+    }
+}
+```
+
+```java
+class UPIPayment implements PaymentStrategy {
+
+    public boolean pay(PaymentRequest request) {
+        // UPI payment
+    }
+}
+```
+
+---
+
+## 19. Why Strategy Pattern?
+
+Without Strategy:
+
+```java
+if (paymentType == CASH) {
+    ...
+} else if (paymentType == UPI) {
+    ...
+} else if (paymentType == CARD) {
+    ...
+}
+```
+
+Every new payment method requires modifying existing code.
+
+With Strategy:
+
+```java
+processor.addStrategy(new CashPayment());
+processor.addStrategy(new UPIPayment());
+```
+
+Adding card:
+
+```java
+processor.addStrategy(new CardPayment());
+```
+
+No modification to `PaymentProcessor`.
+
+This follows:
+
+#### Open/Closed Principle
+
+> Open for extension, closed for modification.
+
+---
+
+## 20. PaymentRequest
+
+Encapsulates payment information.
+
+```java
+class PaymentRequest {
+
+    private int amount;
+    private PaymentMode paymentMode;
+    private String upiId;
+
+    public int getAmount() {}
+    public PaymentMode getPaymentMode() {}
+    public String getUpiId() {}
+}
+```
+
+This avoids passing multiple parameters:
+
+```java
+pay(amount, paymentMode, upiId, ...)
+```
+
+Instead:
+
+```java
+pay(PaymentRequest request)
+```
+
+It also makes the API extensible.
+
+---
+
+## 21. PaymentMode
+
+```java
+enum PaymentMode {
+    CASH,
+    UPI
+}
+```
+
+Later:
+
+```java
+CARD
+WALLET
+NET_BANKING
+```
+
+can be added.
+
+---
+
+## 22. PaymentStatus
+
+```java
+enum PaymentStatus {
+    IDLE,
+    IN_PROGRESS,
+    SUCCESS,
+    FAILED,
+    CANCELLED
+}
+```
+
+This models the payment lifecycle.
+
+```text
+IDLE
+ │
+ ▼
+IN_PROGRESS
+ │
+ ├──── SUCCESS
+ │
+ ├──── FAILED
+ │
+ └──── CANCELLED
+```
+
+---
+
+## 23. Complete Responsibility Matrix
+
+| Component              | Responsibility               |
+| ---------------------- | ---------------------------- |
+| `VendingMachine`       | Context/orchestration        |
+| `VendingMachineState`  | State contract               |
+| `IdleState`            | Initial state                |
+| `ReceiveMoneyState`    | Accept money                 |
+| `SelectProductState`   | Product validation/selection |
+| `DispenseProductState` | Product dispensing           |
+| `ProductInventory`     | Manage shelves               |
+| `ItemShelf`            | Manage product slot          |
+| `ItemType`             | Product classification       |
+| `Coin`                 | Coin instance                |
+| `CoinType`             | Coin denomination            |
+| `CoinManager`          | Supported coin management    |
+| `PaymentProcessor`     | Payment orchestration        |
+| `PaymentStrategy`      | Payment contract             |
+| `CashPayment`          | Cash payment                 |
+| `UPIPayment`           | UPI payment                  |
+| `PaymentRequest`       | Payment input                |
+| `PaymentStatus`        | Payment lifecycle            |
+| `PaymentMode`          | Payment type                 |
+
+---
+
+## 24. End-to-End Transaction
+
+Suppose:
+
+```text
+Coke
+Price = ₹40
+```
+
+User inserts:
+
+```text
+₹20 + ₹20
+```
+
+#### Step 1 — Idle
+
+```text
+VendingMachine
+state = IdleState
+```
+
+User inserts money.
+
+```text
+IdleState.receiveMoney(coins)
+```
+
+Transition:
+
+```text
+IdleState
+    ↓
+ReceiveMoneyState
+```
+
+---
+
+#### Step 2 — Receive Money
+
+Money is added.
+
+```text
+₹20 + ₹20 = ₹40
+```
+
+Machine now allows product selection.
+
+---
+
+#### Step 3 — Select Product
+
+User selects Coke.
+
+```text
+selectProduct(COKE)
+```
+
+`SelectProductState` checks:
+
+```text
+Does shelf exist?       YES
+Is quantity > 0?        YES
+Is payment sufficient?  YES
+```
+
+Transition:
+
+```text
+SelectProductState
         ↓
-REJECT
+DispenseProductState
 ```
 
 ---
 
-# 27. MachineStateHandler
+#### Step 4 — Dispense
 
-Ensures the operation is legal in the current state.
-
-For example:
+Machine:
 
 ```text
-DispensingState + selectProduct()
+1. Retrieves shelf
+2. Removes Coke
+3. Decrements quantity
+4. Updates inventory
+5. Calculates change
+6. Returns change if necessary
 ```
-
-should not be accepted.
-
-This handler protects the state-machine contract.
 
 ---
 
-# 28. Chain Construction
+#### Step 5 — Reset
 
-The chain can be constructed as:
+```text
+DispenseProductState
+        ↓
+IdleState
+```
+
+Machine is ready for another customer.
+
+---
+
+## 25. Cancellation Flow
+
+Suppose:
+
+```text
+₹50 inserted
+Coke = ₹40
+```
+
+User presses cancel.
+
+```text
+ReceiveMoneyState
+        │
+        │ cancel
+        ▼
+refund()
+        │
+        ▼
+₹50 returned
+        │
+        ▼
+IdleState
+```
+
+Important invariant:
+
+> Cancellation must not dispense the product and must return the user's unconsumed money.
+
+---
+
+## 26. Insufficient Payment
+
+Suppose:
+
+```text
+Product = ₹40
+Inserted = ₹20
+```
+
+User selects product.
+
+```text
+SelectProductState
+        │
+        ▼
+price = ₹40
+paid  = ₹20
+        │
+        ▼
+Reject transaction
+```
+
+Machine should **not** dispense.
+
+The user can either:
+
+```text
+insert additional money
+```
+
+or:
+
+```text
+cancel → refund
+```
+
+---
+
+## 27. Out-of-Stock Flow
+
+Suppose:
+
+```text
+Coke quantity = 0
+```
+
+User selects Coke.
+
+```text
+SelectProductState
+        │
+        ▼
+Inventory.getShelf("COKE")
+        │
+        ▼
+quantity == 0
+        │
+        ▼
+Reject
+```
+
+No inventory mutation should happen.
+
+Depending on the business rules, the transaction can remain in the selection state or be cancelled/refunded.
+
+---
+
+## 28. Payment Failure
+
+For UPI:
+
+```text
+Select Product
+      ↓
+PaymentProcessor
+      ↓
+UPIPayment
+      ↓
+UPI Gateway
+      ↓
+FAILED
+```
+
+The machine must not dispense the product when payment has not successfully completed.
+
+```text
+Payment FAILED
+      ↓
+No inventory decrement
+      ↓
+No dispense
+```
+
+This is an important consistency rule.
+
+---
+
+## 29. Important Design Invariants
+
+These are useful points to discuss in an interview.
+
+#### Invariant 1 — Never dispense without successful payment
+
+```text
+payment SUCCESS
+      ↓
+dispense
+```
+
+Never:
+
+```text
+payment IN_PROGRESS
+      ↓
+dispense
+```
+
+---
+
+#### Invariant 2 — Inventory changes only after successful transaction
+
+```text
+payment success
+      ↓
+reserve/dispense
+      ↓
+decrement quantity
+```
+
+---
+
+#### Invariant 3 — Cancellation must be idempotent
+
+If cancel is called twice:
+
+```text
+cancel()
+cancel()
+```
+
+The user should not receive the refund twice.
+
+---
+
+#### Invariant 4 — Failed payment must not consume inventory
+
+```text
+Payment FAILED
+      ↓
+quantity unchanged
+```
+
+---
+
+#### Invariant 5 — Successful transaction returns machine to Idle
+
+```text
+Dispense
+   ↓
+Idle
+```
+
+---
+
+## 30. SOLID Principles
+
+### Single Responsibility
+
+Each component has a focused responsibility:
+
+```text
+Inventory      → inventory
+Payment        → payment
+CoinManager    → coins
+State          → machine behavior
+```
+
+---
+
+### Open/Closed
+
+New payment method:
 
 ```java
-VendingRequestHandler product =
-        new ProductValidationHandler();
-
-VendingRequestHandler availability =
-        new AvailabilityHandler();
-
-VendingRequestHandler payment =
-        new PaymentValidationHandler();
-
-VendingRequestHandler state =
-        new MachineStateHandler();
-
-product.setNext(availability);
-availability.setNext(payment);
-payment.setNext(state);
+class CardPayment implements PaymentStrategy
 ```
 
-Result:
+No need to modify `PaymentProcessor`.
 
-```text
-Product
-   ↓
-Availability
-   ↓
-Payment
-   ↓
-State
-```
-
-The client only needs:
+New state:
 
 ```java
-requestHandler.handle(request);
+class MaintenanceState implements VendingMachineState
 ```
 
-It does not need to know the individual validation sequence.
+No need to redesign the machine.
 
 ---
 
-# 29. CoR: Important Interview Detail
+### Liskov Substitution
 
-Chain of Responsibility does **not necessarily mean only one handler processes the request**.
-
-There are two common styles.
-
-### Style 1 — First handler wins
+Every:
 
 ```text
-Handler A
-   ↓ can't handle
-Handler B
-   ↓ handles
-STOP
+VendingMachineState
 ```
 
-### Style 2 — Pipeline
-
-```text
-Handler A
-   ↓
-Handler B
-   ↓
-Handler C
-   ↓
-Handler D
-```
-
-The vending-machine validation design uses the **pipeline style**.
-
-Each handler performs one validation and forwards the request if validation succeeds.
-
-This is similar to middleware/filter pipelines.
+implementation should be usable wherever the interface is expected.
 
 ---
 
-# 30. Strategy Pattern
+### Dependency Inversion
 
-The payment abstraction can also be viewed as a Strategy-style design.
-
-```text
-             PaymentProcessor
-                    ▲
-             ┌──────┴──────┐
-             │             │
-       CoinPayment     NotePayment
-       Processor        Processor
-```
-
-The vending machine depends on the abstraction:
+`VendingMachine` depends on:
 
 ```java
-private PaymentProcessor paymentProcessor;
+VendingMachineState
 ```
 
 rather than:
 
 ```java
-private CoinPaymentProcessor paymentProcessor;
-```
-
-This makes payment mechanisms replaceable.
-
-Potential future strategies:
-
-```text
-CoinPaymentProcessor
-NotePaymentProcessor
-CardPaymentProcessor
-UPIPaymentProcessor
-WalletPaymentProcessor
-```
-
-The core machine does not need to know the implementation details.
-
----
-
-# 31. Important Distinction: State vs Strategy vs CoR
-
-These three patterns solve completely different problems.
-
-### State
-
-Answers:
-
-> "What should the machine do right now?"
-
-```text
-Idle
-PaymentPending
-Dispensing
-```
-
-### Strategy
-
-Answers:
-
-> "Which algorithm/implementation should perform this operation?"
-
-```text
-Coin payment
-Note payment
-Card payment
-UPI payment
-```
-
-### Chain of Responsibility
-
-Answers:
-
-> "Which validation/processing steps should this request pass through?"
-
-```text
-Product
- → Availability
- → Payment
- → State
-```
-
-A good interview answer explicitly explains this distinction.
-
----
-
-# 32. Complete Purchase Flow
-
-Consider:
-
-```text
-Product A1
-Price = ₹40
-Stock = 5
-```
-
-User inserts:
-
-```text
-₹50
-```
-
-### Step 1 — Selection
-
-```text
-User
- ↓
-VendingMachine.selectProduct("A1")
-```
-
-Current state:
-
-```text
 IdleState
+ReceiveMoneyState
+```
+
+directly.
+
+Likewise:
+
+```java
+PaymentProcessor
+```
+
+depends on:
+
+```java
+PaymentStrategy
 ```
 
 ---
 
-### Step 2 — Request creation
+## 31. Why Not Put Everything Inside VendingMachine?
 
-The machine creates:
+A naïve design would look like:
 
-```text
-VendingRequest
+```java
+class VendingMachine {
+
+    void insertMoney() {
+        if(state == IDLE) {
+            ...
+        } else if(state == HAS_MONEY) {
+            ...
+        } else if(state == SELECTION) {
+            ...
+        }
+    }
+
+    void selectProduct() {
+        if(state == IDLE) {
+            ...
+        } else if(state == HAS_MONEY) {
+            ...
+        }
+    }
+}
 ```
 
-containing:
+Problems:
 
-```text
-productCode = A1
-```
+* Large conditional logic.
+* Violates Open/Closed.
+* Difficult to test.
+* Difficult to add states.
+* State transitions become tightly coupled.
+* Business logic becomes concentrated in one class.
+
+State pattern moves that behavior into independent classes.
 
 ---
 
-### Step 3 — Chain validation
+## 32. Why Not Put Payment Logic in States?
 
-```text
-ProductValidationHandler
-        ↓
-AvailabilityHandler
-        ↓
-PaymentValidationHandler
-        ↓
-MachineStateHandler
+You might be tempted to do:
+
+```java
+ReceiveMoneyState
+    └── CashPayment
+    └── UPIPayment
 ```
 
-Each handler validates its responsibility.
+But payment processing and machine state are **different axes of change**.
+
+State answers:
+
+> What can the machine do right now?
+
+Strategy answers:
+
+> How should this payment be processed?
+
+Keeping them separate gives:
+
+```text
+State dimension
+    ↓
+Idle / Receive / Select / Dispense
+
+Payment dimension
+    ↓
+Cash / UPI / Card / Wallet
+```
+
+This avoids a combinatorial explosion such as:
+
+```text
+CashIdleState
+CashReceiveState
+CashSelectState
+UPIIdleState
+UPIReceiveState
+UPISelectState
+...
+```
+
+This is a useful **staff-level design discussion**.
 
 ---
 
-### Step 4 — Payment
+## 33. Adding Card Payment
 
-```text
-₹50 inserted
+Very small change:
+
+```java
+class CardPayment implements PaymentStrategy {
+
+    @Override
+    public boolean pay(PaymentRequest request) {
+        // Card gateway integration
+        return true;
+    }
+}
 ```
 
-Payment processor:
+Then:
 
-```text
-currentAmount = 50
+```java
+paymentProcessor.addStrategy(new CardPayment());
 ```
 
-Product price:
-
-```text
-40
-```
-
-Therefore:
-
-```text
-50 >= 40
-```
-
-Payment is sufficient.
+Existing state classes don't need to change.
 
 ---
 
-### Step 5 — Dispensing
+## 34. Adding a New State
 
-Machine moves into:
+Suppose we introduce:
 
 ```text
-DispensingState
+MaintenanceState
 ```
 
-The dispenser releases product A1.
+```java
+class MaintenanceState implements VendingMachineState {
 
----
-
-### Step 6 — Inventory update
-
-Before:
-
-```text
-A1 → quantity 5
-```
-
-After:
-
-```text
-A1 → quantity 4
-```
-
----
-
-### Step 7 — Change
-
-```text
-Inserted = ₹50
-Price    = ₹40
-
-Change = ₹10
-```
-
-Change is returned.
-
----
-
-### Step 8 — Reset
-
-```text
-PaymentProcessor.reset()
-```
-
-Selected product is cleared.
-
-Machine returns:
-
-```text
-IdleState
-```
-
----
-
-# 33. Complete Flow Diagram
-
-```text
-             SELECT PRODUCT
-                   │
-                   ▼
-              VendingMachine
-                   │
-                   ▼
-           VendingRequest
-                   │
-                   ▼
-       ┌─────────────────────┐
-       │ ProductValidation   │
-       └──────────┬──────────┘
-                  ▼
-       ┌─────────────────────┐
-       │ Availability        │
-       └──────────┬──────────┘
-                  ▼
-       ┌─────────────────────┐
-       │ PaymentValidation   │
-       └──────────┬──────────┘
-                  ▼
-       ┌─────────────────────┐
-       │ MachineState        │
-       └──────────┬──────────┘
-                  ▼
-             PAYMENT
-                  │
-                  ▼
-             DISPENSING
-                  │
-          ┌───────┴────────┐
-          ▼                ▼
-      Product          Inventory
-      Dispensed        Decrement
-          │                │
-          └───────┬────────┘
-                  ▼
-             Calculate
-               Change
-                  │
-                  ▼
-             Refund/Change
-                  │
-                  ▼
-                IDLE
-```
-
----
-
-# 34. Cancellation Flow
-
-Suppose:
-
-```text
-Product price = ₹50
-Inserted = ₹30
-```
-
-User presses Cancel.
-
-```text
-PaymentPendingState
-        │
-        ▼
-     cancel()
-        │
-        ▼
-paymentProcessor.refund()
-        │
-        ▼
-     reset()
-        │
-        ▼
-    IdleState
-```
-
-Important invariant:
-
-> Cancellation must not modify inventory because the product was never dispensed.
-
----
-
-# 35. Out-of-Stock Flow
-
-Suppose:
-
-```text
-A1 → Coke → quantity = 0
-```
-
-User selects A1.
-
-Chain:
-
-```text
-ProductValidation
-        ↓
-AvailabilityHandler
-        ↓
-REJECT
-```
-
-No payment should be committed.
-
-The machine remains in an appropriate non-dispensing state.
-
----
-
-# 36. Insufficient Payment
-
-Product:
-
-```text
-₹100
-```
-
-User inserts:
-
-```text
-₹50
+    // disable customer operations
+    // allow maintenance operations
+}
 ```
 
 Then:
 
 ```text
-PaymentValidationHandler
-        ↓
-50 < 100
-        ↓
-REJECT / WAIT
+VendingMachine
+      ↓
+VendingMachineState
+      ↓
+MaintenanceState
 ```
 
-There are two possible UX choices:
-
-### Strict validation
-
-Reject the vending request immediately.
-
-### Interactive payment state
-
-Allow the machine to remain in:
-
-```text
-PaymentPendingState
-```
-
-until sufficient payment arrives.
-
-For an actual vending machine, the second approach is generally more natural.
+This is one of the major benefits of State pattern.
 
 ---
 
-# 37. Change-Making
+## 35. Staff-Level Improvements
 
-A production-quality design should separate change calculation from payment collection.
+For a stronger interview design, discuss these as **extensions**, not necessarily as mandatory classes.
 
-For example:
+## 1. Inventory Reservation
 
-```java
-interface ChangeStrategy {
-
-    Change calculateChange(
-        int amount,
-        CashInventory cashInventory
-    );
-}
-```
-
-Possible implementation:
-
-```java
-class GreedyChangeStrategy
-        implements ChangeStrategy
-```
-
-Another:
-
-```java
-class ExactChangeStrategy
-        implements ChangeStrategy
-```
-
-This is another natural use of Strategy.
-
-The change algorithm can therefore be changed without modifying the vending-machine state machine.
-
-A common interview discussion is that greedy works for canonical denominations but is not universally optimal for arbitrary denomination sets.
-
----
-
-# 38. Cash Inventory
-
-For a realistic implementation, the machine should track the cash it owns.
-
-```java
-class CashInventory {
-
-    Map<Integer, Integer> denominationCount;
-}
-```
-
-Example:
+For concurrent users:
 
 ```text
-₹1    → 20
-₹5    → 10
-₹10   → 15
-₹20   → 5
-₹50   → 2
-₹100  → 1
-```
-
-This matters because:
-
-```text
-User paid ₹100
-Product costs ₹30
-Change = ₹70
-```
-
-doesn't guarantee that the machine can actually return ₹70.
-
----
-
-# 39. Critical Transaction Rule
-
-Do not:
-
-```text
-take money
-↓
-dispense product
-↓
-discover change cannot be made
-```
-
-Instead:
-
-```text
-Validate product
+select product
       ↓
-Validate stock
+reserve inventory
       ↓
-Validate payment
+payment
       ↓
-Calculate possible change
-      ↓
-Confirm transaction can complete
-      ↓
-Commit payment
-      ↓
-Dispense
-      ↓
-Update inventory
-      ↓
-Return change
-```
-
-This is a classic **validate-before-commit** principle.
-
----
-
-# 40. Failure During Dispensing
-
-Consider:
-
-```text
-Payment successful
-        ↓
-Motor fails
-        ↓
-Product not dispensed
-```
-
-The machine must not silently keep the user's money.
-
-Possible recovery:
-
-```text
-Payment
-  ↓
-Dispensing failure
-  ↓
-Compensating action
-  ↓
-Refund
-```
-
-In a real system this resembles a small transactional workflow / saga:
-
-```text
-Charge
-  ↓
-Dispense
-  ↓
-If failure → Refund
-```
-
-The design should record the transaction so the operation can be reconciled.
-
----
-
-# 41. Concurrency
-
-A real machine can have concurrent operations:
-
-```text
-Customer interaction
-Maintenance interface
-Inventory refill
-Cash collection
-Telemetry
-```
-
-Critical operations should therefore be synchronized.
-
-For example:
-
-```java
-synchronized void purchase(...) {
-    ...
-}
-```
-
-or use a transaction/session lock.
-
-The critical section should cover:
-
-```text
-check stock
-check payment
-reserve stock
-calculate change
 dispense
-update inventory
 ```
 
-Otherwise two requests could potentially observe:
-
-```text
-quantity = 1
-```
-
-and both attempt to purchase the final product.
+Instead of immediately decrementing inventory.
 
 ---
 
-# 42. Inventory Race Condition
+## 2. Concurrency
 
-Bad:
-
-```text
-Thread A → check quantity = 1
-Thread B → check quantity = 1
-
-Thread A → dispense
-Thread B → dispense
-```
-
-Possible result:
-
-```text
-quantity = -1
-```
-
-or double dispensing.
-
-Correct approach:
-
-```text
-LOCK
-  ↓
-check stock
-  ↓
-reserve/decrement
-  ↓
-perform controlled dispensing
-  ↓
-COMMIT
-UNLOCK
-```
-
-For a physical machine, hardware-level locking and transaction state are also important.
-
----
-
-# 43. Idempotency
-
-A transaction should have a unique identifier:
-
-```java
-transactionId
-```
+Two operations could target the same shelf.
 
 Example:
 
 ```text
-TXN-100001
+Quantity = 1
+
+Customer A → selects Coke
+Customer B → selects Coke
 ```
 
-If a retry occurs:
+Need atomic inventory reservation.
+
+Possible approaches:
 
 ```text
-dispense(TXN-100001)
-```
-
-the machine should not dispense the same product twice.
-
-This becomes particularly important when:
-
-* Payment is remote.
-* Card/UPI is involved.
-* Network calls are involved.
-* Hardware acknowledgements are delayed.
-
----
-
-# 44. SOLID Principles
-
-## Single Responsibility Principle
-
-Each component has a focused responsibility.
-
-```text
-Product       → product data
-ProductSlot   → slot inventory
-Inventory     → inventory management
-Payment       → payment
-Dispenser     → physical dispensing
-State         → state-specific behavior
-Handler       → validation
+Atomic decrement
+Optimistic locking
+Pessimistic locking
+Reservation token
 ```
 
 ---
 
-## Open/Closed Principle
+## 3. Idempotency
 
-Adding:
-
-```text
-UPIPaymentProcessor
-```
-
-should not require modifying the core machine.
-
-Adding:
+Payment callbacks can arrive more than once.
 
 ```text
-LowBalanceValidationHandler
+Payment SUCCESS
+Payment SUCCESS
 ```
 
-should not require rewriting every existing handler.
+The system must not dispense twice.
 
----
-
-## Liskov Substitution
-
-Any implementation of:
-
-```java
-PaymentProcessor
-```
-
-should be usable wherever the interface is expected.
-
-Likewise:
-
-```java
-VendingMachineState
-```
-
-implementations should be safely substitutable.
-
----
-
-## Interface Segregation
-
-Instead of one massive interface:
+Use:
 
 ```text
-MachineEverythingInterface
+transactionId
+paymentId
+idempotencyKey
 ```
 
-use focused abstractions:
+and maintain:
 
 ```text
-PaymentProcessor
-VendingMachineState
-ChangeStrategy
-VendingRequestHandler
+transactionId → transaction status
 ```
 
 ---
 
-## Dependency Inversion
+## 4. Payment Timeout
 
-`VendingMachine` should depend on:
+For UPI:
 
-```java
-PaymentProcessor
+```text
+IN_PROGRESS
+     │
+     ├── SUCCESS
+     ├── FAILED
+     └── TIMEOUT
 ```
 
-rather than:
-
-```java
-CoinPaymentProcessor
-```
-
-and on:
-
-```java
-VendingMachineState
-```
-
-rather than concrete state classes.
+Timeout handling should transition the transaction safely without accidental dispensing.
 
 ---
 
-# 45. Design Patterns Summary
+## 5. Hardware Failure
 
-| Pattern                     | Component                    | Purpose                          |
-| --------------------------- | ---------------------------- | -------------------------------- |
-| **State**                   | `VendingMachineState`        | State-dependent machine behavior |
-| **Strategy**                | `PaymentProcessor`           | Pluggable payment implementation |
-| **Strategy**                | `ChangeStrategy`             | Pluggable change algorithm       |
-| **Chain of Responsibility** | `VendingRequestHandler`      | Sequential request validation    |
-| **Composition**             | `VendingMachine → Inventory` | Machine owns inventory           |
-| **Inheritance**             | `Item → Coin/Note`           | Shared monetary abstraction      |
+What if:
 
-The **State Pattern is the core pattern** for the vending machine. CoR is an additional pattern used for validation, following the same handler-chain concept demonstrated in the referenced logging-system material.
+```text
+payment succeeds
+        ↓
+dispensing motor fails
+```
+
+Now we have:
+
+```text
+Payment = SUCCESS
+Product  = NOT DISPENSED
+```
+
+This requires a recovery mechanism:
+
+```text
+transaction state
+       ↓
+DISPENSE_FAILED
+       ↓
+retry / refund / operator intervention
+```
+
+This is a useful failure-handling discussion.
 
 ---
 
-# 46. Complexity
+## 36. Transaction State vs Machine State
 
-Assuming:
+A key distinction for a staff-level interview:
 
-```text
-Map<String, ProductSlot>
-```
-
-is used for inventory:
-
-### Product lookup
-
-```text
-O(1) average
-```
-
-### Product selection
-
-Approximately:
-
-```text
-O(1)
-```
-
-excluding validation-chain cost.
-
-### Validation chain
-
-For `N` handlers:
-
-```text
-O(N)
-```
-
-Usually `N` is very small.
-
-### Change-making
-
-For `D` denominations with a greedy strategy:
-
-```text
-O(D)
-```
-
-For a DP-based exact-change algorithm, complexity depends on the target amount and denomination count.
-
-### Inventory update
-
-```text
-O(1)
-```
-
-average with a hash map.
-
----
-
-# 47. Error Handling
-
-Typical errors:
-
-```text
-InvalidProductCode
-ProductOutOfStock
-InvalidCoin
-InvalidNote
-InsufficientPayment
-UnableToMakeChange
-InvalidStateOperation
-DispensingFailure
-PaymentFailure
-MachineOutOfService
-HardwareFailure
-```
-
-These should preferably be represented as typed errors/exceptions rather than arbitrary strings.
-
----
-
-# 48. Machine-Level States vs Transaction-Level States
-
-This distinction is important in a senior LLD discussion.
-
-The machine may have states such as:
+#### Machine state
 
 ```text
 IDLE
-READY
-OUT_OF_SERVICE
-MAINTENANCE
+RECEIVE_MONEY
+SELECT_PRODUCT
+DISPENSE_PRODUCT
 ```
 
-while a customer transaction may have:
+Represents **what the machine is doing**.
+
+#### Payment state
 
 ```text
-CREATED
-PRODUCT_SELECTED
-PAYMENT_PENDING
-PAYMENT_CONFIRMED
-DISPENSING
-COMPLETED
-CANCELLED
+IDLE
+IN_PROGRESS
+SUCCESS
 FAILED
-REFUNDED
+CANCELLED
 ```
 
-For a simple interview implementation, these can be combined into one State Pattern.
+Represents **what happened to payment**.
 
-For a production system, separating:
+They should not be mixed together.
+
+For example:
 
 ```text
-Machine lifecycle
+Machine State = DISPENSE_PRODUCT
+Payment Status = SUCCESS
 ```
 
-from:
-
-```text
-Transaction lifecycle
-```
-
-often produces a cleaner design.
+is perfectly valid.
 
 ---
 
-# 49. Production-Level Extension
+## 37. Potential Real-World Architecture
 
-A more production-ready architecture could look like:
-
-```text
-                   VendingMachine
-                         │
-             ┌───────────┼────────────┐
-             │           │            │
-             ▼           ▼            ▼
-         Inventory   Payment      Dispenser
-             │       Processor        │
-             │           │            │
-             ▼           ▼            ▼
-          Product     Payment       Hardware
-           Slots      Gateway        Driver
-                         │
-                         ▼
-                  Payment Provider
-```
-
-And around the workflow:
+For a production vending machine:
 
 ```text
-Request
-   ↓
-Validation Chain
-   ↓
-Transaction Service
-   ↓
-Payment
-   ↓
-Dispensing
-   ↓
-Inventory
-   ↓
-Audit / Events
-```
-
----
-
-# 50. Observer Pattern — Optional Extension
-
-A useful extension is low-stock notification.
-
-Example:
-
-```text
-ProductSlot
-    │
-    │ quantity < threshold
-    ▼
-InventoryEvent
-    │
-    ├── OperatorDashboard
-    ├── RestockService
-    └── MonitoringSystem
-```
-
-This is a natural use case for Observer because inventory should not need to know who consumes low-stock notifications.
-
----
-
-# 51. Factory Pattern — Optional Extension
-
-If many payment processors or states need to be created, a factory can construct them.
-
-```java
-PaymentProcessor processor =
-    PaymentProcessorFactory.create(PaymentType.UPI);
-```
-
-Possible values:
-
-```text
-COIN
-NOTE
-CARD
-UPI
-WALLET
-```
-
-The factory centralizes object creation.
-
----
-
-# 52. Dependency Injection
-
-Instead of:
-
-```java
-VendingMachine machine =
-    new VendingMachine();
-```
-
-with everything created internally, prefer:
-
-```java
-VendingMachine machine =
-    new VendingMachine(
-        inventory,
-        paymentProcessor,
-        dispenser,
-        requestHandler
-    );
-```
-
-Benefits:
-
-* Easier unit testing.
-* Lower coupling.
-* Easy replacement of implementations.
-* Better separation of construction and business logic.
-
----
-
-# 53. Unit Testing Strategy
-
-### Product tests
-
-```text
-correct price
-correct type
-correct code
-```
-
-### Inventory tests
-
-```text
-add product
-remove product
-out-of-stock
-quantity update
-```
-
-### Payment tests
-
-```text
-valid coin
-invalid coin
-insufficient amount
-exact amount
-overpayment
-refund
-```
-
-### State tests
-
-```text
-select in idle
-insert money in invalid state
-cancel payment
-successful transition
-```
-
-### CoR tests
-
-```text
-invalid product → rejected
-empty slot → rejected
-insufficient payment → rejected
-valid request → reaches final handler
-```
-
-### End-to-end tests
-
-```text
-select → pay → dispense → change → idle
-```
-
----
-
-# 54. Important Invariants
-
-These are excellent points to mention during an interview.
-
-### Invariant 1
-
-Never dispense an unavailable product.
-
-```text
-quantity > 0
-```
-
-must be true before dispensing.
-
-### Invariant 2
-
-Never dispense without sufficient payment.
-
-```text
-paid >= price
-```
-
-### Invariant 3
-
-Inventory cannot become negative.
-
-```text
-quantity >= 0
-```
-
-### Invariant 4
-
-Refund must not exceed the amount actually inserted.
-
-### Invariant 5
-
-A completed transaction cannot be executed again.
-
-### Invariant 6
-
-Machine should have exactly one active state at a time.
-
-### Invariant 7
-
-Payment and inventory should remain consistent after success/failure.
-
----
-
-# 55. Interview Explanation — 60 Seconds
-
-If asked to explain the design quickly:
-
-> "I model the vending machine as a Context using the State Pattern because the machine's behavior changes depending on whether it is idle, has a selected product, is waiting for payment, or is dispensing. Inventory owns product slots, and each slot contains a product and quantity. Payment is abstracted behind a PaymentProcessor so different payment mechanisms can be plugged in. Dispensing is isolated in a Dispenser because physical hardware concerns should not leak into the domain logic.
->
-> For request validation, I use Chain of Responsibility. A vending request goes through product validation, availability validation, payment validation, and state validation. Each handler performs one responsibility and forwards the request to the next handler.
->
-> Strategy can additionally be used for payment processing and change calculation. The machine validates the complete transaction before committing it, and the transaction should be protected against concurrency, duplicate execution, and dispensing failures."
-
----
-
-# 56. What the Interviewer Is Really Testing
-
-This problem tests much more than class creation.
-
-### 1. Can you identify changing behavior?
-
-→ **State Pattern**
-
-### 2. Can you separate responsibilities?
-
-→ Inventory / Payment / Dispenser / State
-
-### 3. Can you make behavior extensible?
-
-→ **Strategy**
-
-### 4. Can you compose validations cleanly?
-
-→ **Chain of Responsibility**
-
-### 5. Can you reason about money?
-
-→ Integer currency units, refunds, change, cash availability
-
-### 6. Can you reason about consistency?
-
-→ Validate-before-commit, failure recovery
-
-### 7. Can you reason about concurrency?
-
-→ Atomic purchase / locking / reservation
-
-### 8. Can you reason about extensibility?
-
-→ Card, UPI, wallet, maintenance, new product types, new validators
-
----
-
-# 57. Final Mental Model
-
-Remember the entire design using this simple decomposition:
-
-```text
-                    VENDING MACHINE
-                           │
-          ┌────────────────┼────────────────┐
-          │                │                │
-          ▼                ▼                ▼
-       INVENTORY        PAYMENT          DISPENSER
-          │                │
-          ▼                ▼
-     ProductSlot       Strategy
-          │
-          ▼
-       Product
-
-
-                    VENDING MACHINE
-                           │
-                           ▼
-                        STATE
-                           │
-          ┌────────────────┼────────────────┐
-          ▼                ▼                ▼
-        IDLE          PAYMENT          DISPENSING
-
-
-                    REQUEST
+             ┌───────────────────┐
+             │ Physical Machine  │
+             └─────────┬─────────┘
                        │
-                       ▼
-                    CoR CHAIN
+                Vending Controller
                        │
-          ┌────────────┼─────────────┐
-          ▼            ▼             ▼
-       PRODUCT      STOCK         PAYMENT
-       VALIDATION   VALIDATION    VALIDATION
+        ┌──────────────┼──────────────┐
+        │              │              │
+        ▼              ▼              ▼
+    Inventory       Payment        Hardware
+     Service        Service        Controller
+                       │
+                 ┌─────┴─────┐
+                 ▼           ▼
+               UPI          Card
 ```
 
-### The three most important patterns
-
-```text
-STATE
-↓
-Controls machine behavior
-
-
-STRATEGY
-↓
-Makes payment/change algorithms replaceable
-
-
-CHAIN OF RESPONSIBILITY
-↓
-Builds a sequential validation pipeline
-```
-
-That separation is the core of a clean, extensible vending-machine LLD.
+The LLD classes shown in the diagram can represent the **controller/domain layer**, while actual payment gateways and hardware drivers can sit behind interfaces.
 
 ---
 
-# 58. One Important Design Refinement
+## 38. Interview Flow — How to Explain This Design
 
-The diagram uses `PaymentProcessor` as the payment abstraction and CoR for validation, which is useful for demonstrating the patterns. In a production implementation, I would additionally introduce a dedicated `Transaction` / `PaymentSession` object:
+A clean explanation sequence is:
 
-```java
-class Transaction {
+#### Step 1
 
-    private String transactionId;
-    private String productCode;
-    private long productPrice;
-    private long insertedAmount;
-    private TransactionStatus status;
-}
+Start with the main entity:
+
+> "`VendingMachine` is my Context. It maintains inventory, payment processing, coin management, and the current machine state."
+
+#### Step 2
+
+Explain State:
+
+> "The machine's behavior changes based on its current state, so I'm using State pattern instead of large conditional blocks."
+
+```text
+Idle
+ ↓
+ReceiveMoney
+ ↓
+SelectProduct
+ ↓
+DispenseProduct
+ ↓
+Idle
 ```
 
-This prevents transaction-specific mutable data from leaking into the `VendingMachine` and becomes especially valuable when adding:
+#### Step 3
 
-* Card/UPI payments
-* Distributed payment providers
-* Idempotency
-* Audit trails
-* Refunds
-* Payment reconciliation
-* Hardware failures
+Explain inventory:
 
-This is the natural next step when evolving the interview design toward a production-grade system.
+```text
+ProductInventory
+      ↓
+ItemShelf
+```
+
+> "Inventory owns shelves, and each shelf tracks product type, price and quantity."
+
+#### Step 4
+
+Explain payment:
+
+```text
+PaymentProcessor
+      ↓
+PaymentStrategy
+    ↙       ↘
+ Cash       UPI
+```
+
+> "Payment methods are independent strategies so adding Card doesn't require changing the processor."
+
+#### Step 5
+
+Explain coins:
+
+```text
+CoinManager
+    ↓
+Coin / CoinType
+```
+
+> "Coin management is separated so denomination validation and change-related logic don't leak into the machine."
+
+#### Step 6
+
+Discuss failure cases:
+
+```text
+Insufficient money
+Out of stock
+Payment failure
+Cancellation
+Dispensing failure
+```
+
+#### Step 7
+
+Discuss concurrency:
+
+```text
+inventory reservation
+idempotency
+atomic update
+```
+
+That takes the design from a basic LLD toward a **staff-level discussion**.
 
 ---
 
-# 59. Staff-Level Deep Dive: Physical Dispensing and Recovery
+## 39. One-Page Mental Model
 
-Payment authorization, cash acceptance, stock, and a motor cannot be committed atomically. Model a purchase as a durable transaction with explicit milestones:
+Remember the entire design as **four independent responsibilities**:
 
 ```text
-STARTED -> FUNDS_HELD -> STOCK_RESERVED -> DISPENSE_COMMAND_SENT
-                                              |-> DISPENSE_CONFIRMED -> SETTLED
-                                              |-> DISPENSE_UNCERTAIN -> RECONCILIATION
+                         VENDING MACHINE
+                               │
+          ┌────────────────────┼────────────────────┐
+          │                    │                    │
+          ▼                    ▼                    ▼
+       INVENTORY             PAYMENT              COINS
+          │                    │                    │
+          ▼                    ▼                    ▼
+     ProductInventory    PaymentProcessor      CoinManager
+          │                    │
+          ▼                    ▼
+      ItemShelf          PaymentStrategy
+                         /           \
+                        /             \
+                  CashPayment      UPIPayment
+
+
+                       BEHAVIOR
+                          │
+                          ▼
+                 VendingMachineState
+                          │
+       ┌──────────────────┼──────────────────┐
+       ▼                  ▼                  ▼
+    IdleState       ReceiveMoneyState   SelectProductState
+                                             │
+                                             ▼
+                                     DispenseProductState
 ```
 
-Reserve the slot quantity and change before taking an irreversible payment. Expire an abandoned reservation only after checking payment status and confirming dispensing has not begun. For electronic payments, authorize first and capture only when the product is confirmed dispensed. For physical cash, track accepted funds in escrow where hardware supports it. A motor timeout is ambiguous: sensor feedback may prove delivery, but absent proof, do not blindly dispense again or claim a refund completed. Persist the outcome and reconcile against hardware counters, payment-provider status, and operator records.
+#### Core design patterns
 
-Give every purchase a stable transaction ID and make retries idempotent at each boundary. Serialize commands per machine; if control can fail over across processes, use a lease with a fencing token so a stale controller cannot continue actuating hardware. Durable state recovery handles restarts. The core principle is to make uncertainty visible and recoverable instead of disguising it as success or failure.
+```text
+State Pattern
+    → machine behavior
+
+Strategy Pattern
+    → payment behavior
+```
+
+#### Core principles
+
+```text
+Separation of concerns
+Polymorphism
+Open/Closed Principle
+Composition over inheritance
+Encapsulation
+Dependency inversion
+```
+
+#### Core production concerns
+
+```text
+Concurrency
+Inventory reservation
+Payment idempotency
+Payment timeout
+Hardware failure
+Recovery/refund
+Transaction consistency
+```
+
+**The most important interview insight:** don't treat this as merely a "vending machine classes" question. The real design challenge is separating the **machine lifecycle (State)** from **payment mechanism (Strategy)** and **resource management (Inventory/CoinManager)** so each dimension can evolve independently.

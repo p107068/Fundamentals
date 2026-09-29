@@ -1,6 +1,14 @@
 # Snake & Ladder — Low-Level Design
 ![Snake and ladder class diagram](resource/snake-and-ladder.png)
 
+## Revision Snapshot
+
+| Lens | Recall |
+| --- | --- |
+| Core model | Round-robin turns + dice result + board jump lookup |
+| Design leverage | Inject dice for deterministic tests; keep rules explicit and configurable |
+| Hard problem | Specify overshoot and chained-jump rules; reject invalid or cyclic board configuration |
+
 ## 1. Problem Understanding
 
 We need to design a Snake & Ladder game where:
@@ -19,7 +27,7 @@ We need to design a Snake & Ladder game where:
 
 ---
 
-# 2. High-Level Design
+## 2. High-Level Design
 
 The design is divided into six classes:
 
@@ -36,7 +44,7 @@ Game
  └── Winner
 ```
 
-### Core classes
+#### Core classes
 
 | Class    | Responsibility                          |
 | -------- | --------------------------------------- |
@@ -53,7 +61,7 @@ The key principle is:
 
 ---
 
-# 3. Class Diagram
+## 3. Class Diagram
 
 ```text
                          ┌─────────────────────┐
@@ -109,15 +117,15 @@ The key principle is:
 
 ---
 
-# 4. Game Class
+## 4. Game Class
 
-## Responsibility
+### Responsibility
 
 `Game` is the **orchestrator**.
 
 It should not know the internal implementation of the board or dice. Instead, it coordinates them.
 
-### Attributes
+#### Attributes
 
 ```java
 private Board board;
@@ -126,7 +134,7 @@ private Deque<Player> playersList;
 private Player winner;
 ```
 
-### Why `Deque<Player>`?
+#### Why `Deque<Player>`?
 
 The game is turn-based.
 
@@ -156,9 +164,9 @@ This gives us a **queue-like round-robin mechanism**.
 
 ---
 
-# 5. Game Methods
+## 5. Game Methods
 
-## `Game()`
+### `Game()`
 
 Responsible for creating/initializing the game.
 
@@ -173,7 +181,7 @@ Game() {
 
 ---
 
-## `initializeGame()`
+### `initializeGame()`
 
 Responsible for creating the game infrastructure.
 
@@ -194,7 +202,7 @@ number of ladders
 
 ---
 
-## `addPlayers()`
+### `addPlayers()`
 
 Creates players and puts them into:
 
@@ -206,9 +214,9 @@ Players start from the initial position.
 
 ---
 
-# 6. Starting the Game
+## 6. Starting the Game
 
-## `startGame()`
+### `startGame()`
 
 This is the main game loop.
 
@@ -239,9 +247,9 @@ The important thing is that **Game controls the sequence**, while other classes 
 
 ---
 
-# 7. Finding the Player's Turn
+## 7. Finding the Player's Turn
 
-## `findPlayerTurn()`
+### `findPlayerTurn()`
 
 The next player is obtained from the deque.
 
@@ -279,13 +287,13 @@ This produces a simple **round-robin scheduling mechanism**.
 
 ---
 
-# 8. Dice Class
+## 8. Dice Class
 
-## Responsibility
+### Responsibility
 
 The `Dice` class is responsible only for generating dice values.
 
-### Attributes
+#### Attributes
 
 ```java
 private int diceCount;
@@ -293,7 +301,7 @@ private int min = 1;
 private int max = 6;
 ```
 
-### Constructor
+#### Constructor
 
 ```java
 Dice(int diceCount)
@@ -315,7 +323,7 @@ diceCount = 2
 
 ---
 
-## `rollDice()`
+### `rollDice()`
 
 Returns the result of the dice roll.
 
@@ -333,7 +341,7 @@ For a standard dice:
 
 ---
 
-# 9. Why Keep Dice Separate?
+## 9. Why Keep Dice Separate?
 
 A common interview question:
 
@@ -378,13 +386,13 @@ or inject a deterministic dice implementation for testing.
 
 ---
 
-# 10. Board Class
+## 10. Board Class
 
-## Responsibility
+### Responsibility
 
 `Board` owns the physical representation of the game board.
 
-### Attribute
+#### Attribute
 
 ```java
 private Cell[][] cells;
@@ -412,7 +420,7 @@ Cell[][]
 
 ---
 
-# 11. Why `Cell[][]`?
+## 11. Why `Cell[][]`?
 
 The actual game is conceptually a 2D board.
 
@@ -443,7 +451,7 @@ This provides a cleaner object model.
 
 ---
 
-# 12. Board Constructor
+## 12. Board Constructor
 
 Conceptually:
 
@@ -468,7 +476,7 @@ Board
 
 ---
 
-# 13. `initializeCells()`
+## 13. `initializeCells()`
 
 Responsible for creating all cells.
 
@@ -493,9 +501,9 @@ Board
 
 ---
 
-# 14. Adding Snakes and Ladders
+## 14. Adding Snakes and Ladders
 
-## `addSnakesLadders()`
+### `addSnakesLadders()`
 
 This method creates the jumps on the board.
 
@@ -521,7 +529,7 @@ end
 
 ---
 
-# 15. Jump Class
+## 15. Jump Class
 
 The interesting design decision is that there is **no separate `Snake` and `Ladder` class**.
 
@@ -533,7 +541,7 @@ Jump
 
 represents both.
 
-### Attributes
+#### Attributes
 
 ```java
 private int start;
@@ -542,11 +550,11 @@ private int end;
 
 ---
 
-# 16. How Does Jump Represent Snake vs Ladder?
+## 16. How Does Jump Represent Snake vs Ladder?
 
 This is determined from the relationship between `start` and `end`.
 
-### Ladder
+#### Ladder
 
 ```text
 start < end
@@ -560,7 +568,7 @@ Example:
 
 Player climbs upward.
 
-### Snake
+#### Snake
 
 ```text
 start > end
@@ -588,7 +596,7 @@ No inheritance is required.
 
 ---
 
-# 17. Why One `Jump` Class?
+## 17. Why One `Jump` Class?
 
 Instead of:
 
@@ -625,13 +633,13 @@ position A → position B
 
 ---
 
-# 18. Cell Class
+## 18. Cell Class
 
-## Responsibility
+### Responsibility
 
 A `Cell` represents one position on the board.
 
-### Attribute
+#### Attribute
 
 ```java
 private Jump jump;
@@ -657,7 +665,7 @@ Cell ────── 0..1 ────── Jump
 
 ---
 
-# 19. Why Does Cell Own Jump?
+## 19. Why Does Cell Own Jump?
 
 Consider:
 
@@ -696,7 +704,7 @@ jump.end = 25
 
 ---
 
-# 20. `getCell()`
+## 20. `getCell()`
 
 The Board provides:
 
@@ -722,20 +730,20 @@ This keeps the board representation hidden from `Game`.
 
 ---
 
-# 21. Player Class
+## 21. Player Class
 
-## Responsibility
+### Responsibility
 
 `Player` represents the state of one player.
 
-### Attributes
+#### Attributes
 
 ```java
 private String id;
 private int currentPosition;
 ```
 
-### Constructor
+#### Constructor
 
 ```java
 Player(
@@ -752,7 +760,7 @@ Player("P1", 0)
 
 ---
 
-# 22. Player State
+## 22. Player State
 
 At any point:
 
@@ -788,7 +796,7 @@ P1 → 75
 
 ---
 
-# 23. Complete Movement Flow
+## 23. Complete Movement Flow
 
 This is the most important flow to understand for interviews.
 
@@ -831,7 +839,7 @@ Next Player
 
 ---
 
-# 24. `jumpCheck()`
+## 24. `jumpCheck()`
 
 `Game` contains the logic that checks whether a player landed on a snake or ladder.
 
@@ -870,7 +878,7 @@ Same position
 
 ---
 
-# 25. Example
+## 25. Example
 
 Suppose:
 
@@ -919,9 +927,9 @@ The same `Jump` abstraction handles both cases.
 
 ---
 
-# 26. Object Relationships
+## 26. Object Relationships
 
-## Game → Board
+### Game → Board
 
 ```text
 Game ◆──── Board
@@ -937,7 +945,7 @@ Game 1 ─── 1 Board
 
 ---
 
-## Game → Dice
+### Game → Dice
 
 ```text
 Game ◆──── Dice
@@ -951,7 +959,7 @@ Game 1 ─── 1 Dice
 
 ---
 
-## Game → Player
+### Game → Player
 
 ```text
 Game ◆──── 0..* Player
@@ -967,7 +975,7 @@ Deque<Player>
 
 ---
 
-## Game → Winner
+### Game → Winner
 
 ```text
 Game ───── 0..1 Player
@@ -989,7 +997,7 @@ So a game has **zero or one winner** at any point.
 
 ---
 
-## Board → Cell
+### Board → Cell
 
 ```text
 Board ◆──── 0..* Cell
@@ -1005,7 +1013,7 @@ Cell[][]
 
 ---
 
-## Cell → Jump
+### Cell → Jump
 
 ```text
 Cell ───── 0..1 Jump
@@ -1027,7 +1035,7 @@ A cell should not have multiple snakes/ladders simultaneously.
 
 ---
 
-# 27. Complete Relationship Table
+## 27. Complete Relationship Table
 
 | Relationship  | Multiplicity | Meaning                         |
 | ------------- | -----------: | ------------------------------- |
@@ -1040,7 +1048,7 @@ A cell should not have multiple snakes/ladders simultaneously.
 
 ---
 
-# 28. Important Design Decision — No Snake/Ladder Classes
+## 28. Important Design Decision — No Snake/Ladder Classes
 
 A common alternative design would be:
 
@@ -1083,11 +1091,11 @@ This is a good example of avoiding **unnecessary abstraction**.
 
 ---
 
-# 29. Separation of Responsibilities
+## 29. Separation of Responsibilities
 
 This is one of the most important interview concepts.
 
-### Game
+#### Game
 
 Responsible for:
 
@@ -1098,7 +1106,7 @@ movement
 winner detection
 ```
 
-### Board
+#### Board
 
 Responsible for:
 
@@ -1109,7 +1117,7 @@ snakes/ladders placement
 position → cell mapping
 ```
 
-### Cell
+#### Cell
 
 Responsible for:
 
@@ -1118,7 +1126,7 @@ representing one board position
 holding optional jump
 ```
 
-### Jump
+#### Jump
 
 Responsible for:
 
@@ -1127,7 +1135,7 @@ start position
 destination position
 ```
 
-### Dice
+#### Dice
 
 Responsible for:
 
@@ -1135,7 +1143,7 @@ Responsible for:
 random dice generation
 ```
 
-### Player
+#### Player
 
 Responsible for:
 
@@ -1146,9 +1154,9 @@ current position
 
 ---
 
-# 30. SOLID Principles Applied
+## 30. SOLID Principles Applied
 
-## Single Responsibility Principle
+### Single Responsibility Principle
 
 Each class has a focused responsibility.
 
@@ -1165,7 +1173,7 @@ This is the strongest SOLID principle demonstrated by this design.
 
 ---
 
-## Open/Closed Principle
+### Open/Closed Principle
 
 The design can be extended without heavily modifying the existing classes.
 
@@ -1181,7 +1189,7 @@ Similarly, the game can potentially support different board implementations.
 
 ---
 
-## Dependency Inversion
+### Dependency Inversion
 
 The current implementation is relatively simple and does not fully demonstrate dependency inversion.
 
@@ -1198,7 +1206,7 @@ That would improve testability.
 
 ---
 
-# 31. Testability
+## 31. Testability
 
 One weakness of directly generating random values is that testing becomes difficult.
 
@@ -1246,7 +1254,7 @@ This is an **extension**, not necessarily part of the original video implementat
 
 ---
 
-# 32. Important Edge Cases
+## 32. Important Edge Cases
 
 During an interview, discuss these explicitly.
 
@@ -1295,7 +1303,7 @@ Validate the board configuration once at creation time:
 
 ---
 
-# 33. Staff-Level Deep Dive: Deterministic Replay
+## 33. Staff-Level Deep Dive: Deterministic Replay
 
 Make randomness an injected dependency. A seeded random generator makes a game reproducible in tests; for a persisted match, record the accepted move events (player, roll, resulting position, ruleset version) rather than assuming a seed alone will remain compatible across code changes.
 

@@ -1,1520 +1,1647 @@
-# ATM Machine — Low Level Design
+# ATM — Low-Level Design
 
-![ATM machine class diagram](resource/atm-machine.png)
+![ATM class diagram](resource/atm.png)
+
+## Revision Snapshot
+
+| Lens | Recall |
+| --- | --- |
+| Core model | ATM state machine + bank service + denomination dispenser chain |
+| Design leverage | State controls valid session actions; Chain of Responsibility delegates note dispensing |
+| Hard problem | Bank debit and physical cash delivery cannot share one atomic transaction; make ambiguous outcomes reconcilable |
 
 ## 1. Problem Statement
 
-Design an ATM system that supports:
+Design an ATM that supports:
 
-* Card insertion and ejection
+* Card insertion
 * PIN authentication
+* Balance inquiry
 * Cash withdrawal
 * Cash deposit
-* Balance inquiry
-* PIN change
-* Cash dispensing
-* Receipt printing
-* Transaction recording
-* Interaction with the bank/account service
-* Multiple ATM operations
-* Validation of operations before execution
+* Cash dispensing using available denominations
+* Card ejection
+* Different ATM states during a user session
 
-The design should be:
+The important design challenge is not the UI. It is modeling:
 
-* **Extensible** — adding a new ATM operation should require minimal changes.
-* **Maintainable** — hardware, banking logic, and transaction logic should remain separated.
-* **Testable** — individual operations should be independently testable.
-* **Loosely coupled** — ATM controller should not know implementation details of every operation.
+1. **ATM session state**
+2. **Authentication**
+3. **Bank/account interaction**
+4. **Cash inventory**
+5. **Cash dispensing**
+6. **Extensibility for new operations/states/denominations**
 
 ---
 
-# 2. High-Level Architecture
-
-The system can be divided into six major areas:
+## 2. High-Level Architecture
 
 ```text
-ATMClient
-    |
-    v
-ATMController
-    |
-    +---- ATMSession
-    |
-    +---- ATMOperation Chain
-              |
-              +-- WithdrawOperation
-              +-- DepositOperation
-              +-- BalanceInquiryOperation
-              +-- PinChangeOperation
-    |
-    v
-ATMContext
-    |
-    +-- CardReader
-    +-- CashDispenser
-    +-- ReceiptPrinter
-    +-- BankService
-    |
-    v
-Account / Transaction / Card
+                         ┌──────────────┐
+                         │     Card     │
+                         └──────┬───────┘
+                                │
+                                ▼
+┌──────────────┐        ┌─────────────────────┐
+│    Client    │───────▶│        ATM          │
+└──────────────┘        │  Facade + Singleton │
+                        └──────┬───────┬──────┘
+                               │       │
+                    ┌──────────┘       └──────────┐
+                    ▼                             ▼
+              ┌───────────┐                ┌──────────────┐
+              │ ATMState  │                │ BankService  │
+              └─────┬─────┘                └──────┬───────┘
+                    │                             │
+          ┌─────────┼──────────┐          ┌──────┴──────┐
+          ▼         ▼          ▼          ▼             ▼
+       Idle     HasCard   Authenticated  Card         Account
+
+
+                        ATM
+                         │
+                         ▼
+                  ┌──────────────┐
+                  │CashDispenser │
+                  └──────┬───────┘
+                         │
+                         ▼
+                  DispenseChain
+                         │
+             ┌───────────┼───────────┐
+             ▼           ▼           ▼
+        ₹100/$100      ₹50/$50      ₹20/$20
 ```
 
-The key idea is that **ATMController orchestrates the flow**, while specialized classes perform individual responsibilities.
+The reference design explicitly separates the ATM state machine from the cash-dispensing chain. ([Rohan Handore Portfolio][1])
 
 ---
 
-# 3. Core Classes
+## 3. Core Classes
 
-## ATMClient
+### `ATM`
 
-Represents the external actor interacting with the ATM.
+This is the **central coordinator**.
+
+#### Responsibilities
+
+* Maintain current ATM state
+* Maintain current card/session
+* Delegate operations to current state
+* Communicate with `BankService`
+* Trigger cash dispensing
+* Change state
 
 ```java
-class ATMClient {
-    private ATMController atmController;
+class ATM {
 
-    public void start();
+    private ATMState currentState;
+    private Card currentCard;
+
+    private BankService bankService;
+    private CashDispenser cashDispenser;
+
     public void insertCard(Card card);
-    public void authenticate(String pin);
-    public void selectOperation(OperationType type);
-    public void enterAmount(double amount);
-    public void endSession();
+    public void enterPin(String pin);
+
+    public void selectOperation(
+        OperationType operation,
+        int amount
+    );
+
+    public void checkBalance();
+    public void withdrawCash(int amount);
+    public void depositCash(int amount);
+
+    public void ejectCard();
+
+    public void changeState(ATMState state);
 }
 ```
 
-### Responsibility
+#### Important design point
 
-ATMClient simulates the user interaction.
-
-It should **not contain ATM business logic**.
-
-For example:
-
-```text
-ATMClient
-   |
-   | insert card
-   v
-ATMController
-   |
-   | authenticate
-   v
-ATMController
-```
-
----
-
-# 4. ATMController
-
-The controller acts as the **orchestrator**.
-
-```java
-class ATMController {
-
-    private ATMOperation currentOperation;
-    private ATMOperation operations;
-    private ATMSession currentSession;
-
-    public boolean startSession(Card card);
-
-    public boolean authenticatePin(String pin);
-
-    public void selectOperation(OperationType type);
-
-    public boolean performOperation(double amount);
-
-    public void endSession();
-}
-```
-
-### Responsibilities
-
-* Start ATM session
-* Authenticate card/PIN
-* Select operation
-* Delegate operation execution
-* End session
-
-### Important design principle
-
-`ATMController` should **not implement withdrawal, deposit, PIN change, etc. itself.**
+`ATM` should **not contain a giant switch statement based on state**.
 
 Bad:
 
 ```java
-if (operation == WITHDRAW) {
-    // withdrawal logic
-} else if (operation == DEPOSIT) {
-    // deposit logic
+if (state == IDLE) {
+    ...
+} else if (state == HAS_CARD) {
+    ...
+} else if (state == AUTHENTICATED) {
+    ...
 }
 ```
-
-This creates a large controller and violates the **Open/Closed Principle**.
 
 Instead:
 
-```text
-ATMController
-      |
-      v
-ATMOperation
-      |
-      +---- WithdrawOperation
-      +---- DepositOperation
-      +---- BalanceInquiryOperation
-      +---- PinChangeOperation
+```java
+currentState.insertCard(this, card);
+currentState.enterPin(this, pin);
+currentState.selectOperation(this, operation, amount);
 ```
+
+This is the core reason for using the **State Pattern**.
 
 ---
 
-# 5. ATMOperation — Operation Handler
+## 4. ATM State Machine
 
-An ATM operation is best modeled as a command/operation handler. The controller resolves the user's `OperationType` to one handler, then executes it.
+The ATM has three important states:
+
+```text
+                insertCard()
+                    │
+                    ▼
+              ┌──────────┐
+              │ HasCard  │
+              └────┬─────┘
+                   │
+                enterPin()
+                   │
+                   ▼
+          ┌─────────────────┐
+          │ Authenticated   │
+          └───────┬─────────┘
+                  │
+            operation
+                  │
+                  ▼
+             ejectCard()
+                  │
+                  ▼
+              ┌───────┐
+              │ Idle  │
+              └───────┘
+```
+
+#### State transition table
+
+| Current State        | Action               | Next State           |
+| -------------------- | -------------------- | -------------------- |
+| `IdleState`          | Insert card          | `HasCardState`       |
+| `HasCardState`       | Correct PIN          | `AuthenticatedState` |
+| `HasCardState`       | Wrong PIN            | `IdleState`          |
+| `AuthenticatedState` | Transaction complete | `IdleState`          |
+| `AuthenticatedState` | Eject card           | `IdleState`          |
+
+---
+
+## 5. `ATMState` Interface
+
+The common contract:
 
 ```java
-abstract class ATMOperation {
+interface ATMState {
 
-    protected ATMContext atmContext;
+    void insertCard(ATM atm, Card card);
 
-    public abstract boolean handle();
+    void enterPin(ATM atm, String pin);
 
-    protected boolean validate();
+    void selectOperation(
+        ATM atm,
+        OperationType operation,
+        int amount
+    );
+
+    void ejectCard(ATM atm);
 }
 ```
 
-Dispatch can use a registry or factory:
+The key idea is:
 
-```text
-OperationType -> ATMOperation
-WITHDRAW      -> WithdrawOperation
-DEPOSIT       -> DepositOperation
-BALANCE       -> BalanceInquiryOperation
-PIN_CHANGE    -> PinChangeOperation
-```
-
-This is not Chain of Responsibility: the request is selected by its operation type rather than offered to handlers until one accepts it. A validation pipeline may use Chain of Responsibility, but dispatch and validation are separate concerns.
-
-### Why this boundary?
-
-It keeps the controller small and lets each operation own its workflow. A registry makes the mapping explicit and testable; adding an operation requires registering its handler.
+> Every state supports the same interface, but each state decides what those operations mean.
 
 For example:
 
 ```text
-Existing:
+IdleState
+    enterPin()
+        → "Insert card first"
 
-Withdraw
-Deposit
-Balance
-PIN Change
+HasCardState
+    enterPin()
+        → authenticate PIN
 
-New:
-
-MiniStatementOperation
-TransferOperation
-BillPaymentOperation
+AuthenticatedState
+    enterPin()
+        → "Already authenticated"
 ```
 
-We can introduce:
-
-```java
-class MiniStatementOperation extends ATMOperation {
-    @Override
-    public boolean handle() {
-        ...
-    }
-}
-```
-
-without putting all the logic inside `ATMController`.
+This is **polymorphism replacing conditional logic**.
 
 ---
 
-# 6. Why use `ATMOperation` as an Abstract Class?
+## 6. `IdleState`
 
-Common functionality belongs in the base class:
+Initial state of the ATM.
 
 ```java
-abstract class ATMOperation {
+class IdleState implements ATMState {
 
-    protected ATMContext atmContext;
-
-    protected boolean validate() {
-        return true;
+    @Override
+    public void insertCard(ATM atm, Card card) {
+        atm.setCurrentCard(card);
+        atm.changeState(new HasCardState());
     }
 
-    public abstract boolean handle();
+    @Override
+    public void enterPin(ATM atm, String pin) {
+        // Invalid operation
+    }
+
+    @Override
+    public void selectOperation(
+        ATM atm,
+        OperationType operation,
+        int amount
+    ) {
+        // Invalid operation
+    }
+
+    @Override
+    public void ejectCard(ATM atm) {
+        // No card
+    }
 }
 ```
 
-Concrete operations implement their own behavior.
+#### Valid operation
+
+```text
+insertCard()
+```
+
+Everything else is invalid.
+
+---
+
+## 7. `HasCardState`
+
+The card is inserted but the user hasn't authenticated yet.
 
 ```java
-class WithdrawOperation extends ATMOperation {
+class HasCardState implements ATMState {
 
     @Override
-    public boolean handle() {
-        if (!validate()) {
-            return false;
+    public void enterPin(ATM atm, String pin) {
+
+        boolean authenticated =
+            atm.getBankService()
+               .authenticate(atm.getCurrentCard(), pin);
+
+        if (authenticated) {
+            atm.changeState(
+                new AuthenticatedState()
+            );
+        } else {
+            atm.ejectCard();
+        }
+    }
+}
+```
+
+#### State responsibility
+
+It owns the authentication transition:
+
+```text
+HasCardState
+      │
+      │ correct PIN
+      ▼
+AuthenticatedState
+```
+
+Wrong PIN:
+
+```text
+HasCardState
+      │
+      │ incorrect PIN
+      ▼
+IdleState
+```
+
+---
+
+## 8. `AuthenticatedState`
+
+This state represents an authenticated session.
+
+Supported operations:
+
+```text
+CHECK_BALANCE
+WITHDRAW_CASH
+DEPOSIT_CASH
+```
+
+Example:
+
+```java
+class AuthenticatedState implements ATMState {
+
+    @Override
+    public void selectOperation(
+        ATM atm,
+        OperationType operation,
+        int amount
+    ) {
+
+        switch (operation) {
+
+            case CHECK_BALANCE:
+                atm.checkBalance();
+                break;
+
+            case WITHDRAW_CASH:
+                atm.withdrawCash(amount);
+                break;
+
+            case DEPOSIT_CASH:
+                atm.depositCash(amount);
+                break;
         }
 
-        // withdrawal logic
-        return true;
+        atm.ejectCard();
     }
 }
 ```
 
-This gives us:
-
-* Polymorphism
-* Common validation structure
-* Extensibility
-* Loose coupling
+The important architectural point is that **the state controls whether an operation is allowed**, while `ATM` performs the actual subsystem coordination.
 
 ---
 
-# 7. ATMContext
+## 9. `OperationType`
 
-`ATMContext` contains the hardware and services required during an ATM operation.
+Use an enum instead of strings.
 
 ```java
-class ATMContext {
+enum OperationType {
 
-    private CardReader cardReader;
-    private CashDispenser cashDispenser;
-    private ReceiptPrinter receiptPrinter;
-    private BankService bankService;
-    private ATMSession currentSession;
+    CHECK_BALANCE,
+    WITHDRAW_CASH,
+    DEPOSIT_CASH
 }
 ```
 
-### Why Context?
+Advantages:
 
-Without `ATMContext`, every operation could receive many dependencies:
+* Type safety
+* No magic strings
+* Easy to extend
+* Clear intent
+
+For example:
 
 ```java
-withdraw(
-    cardReader,
-    cashDispenser,
-    receiptPrinter,
-    bankService,
-    session
+atm.selectOperation(
+    OperationType.WITHDRAW_CASH,
+    500
 );
 ```
 
-That becomes messy.
-
-Instead:
-
-```java
-withdrawOperation
-        |
-        v
-    ATMContext
-   /    |      \
-card  cash    bank
-reader dispenser service
-```
-
-The operation receives one well-defined context.
-
 ---
 
-# 8. ATM Session
-
-An ATM session represents the current interaction with the machine.
+## 10. Card
 
 ```java
-class ATMSession {
+class Card {
 
-    private Card card;
-    private Account account;
-
-    private boolean authenticated;
-
-    private OperationType currentOperation;
-
-    public void setAuthenticated(boolean flag);
-
-    public boolean isAuthenticated();
-
-    public Account getAccount();
-
-    public void setOperation(OperationType type);
+    private String cardNumber;
+    private String pin;
 }
 ```
 
-### Session lifecycle
+#### Responsibility
 
-```text
-IDLE
- |
- | insert card
- v
-CARD_INSERTED
- |
- | valid PIN
- v
-AUTHENTICATED
- |
- | select operation
- v
-OPERATION_IN_PROGRESS
- |
- | complete
- v
-AUTHENTICATED
- |
- | eject card
- v
-IDLE
-```
-
-This is essentially a **state-machine concept**.
-
----
-
-# 9. ATM State
-
-A useful extension is:
-
-```java
-enum ATMState {
-    IDLE,
-    CARD_INSERTED,
-    AUTHENTICATED,
-    OPERATION_IN_PROGRESS
-}
-```
-
-The state determines which actions are valid.
-
-For example:
-
-```text
-IDLE
-    insertCard()       -> CARD_INSERTED
-
-CARD_INSERTED
-    authenticate()     -> AUTHENTICATED
-
-AUTHENTICATED
-    withdraw()         -> OPERATION_IN_PROGRESS
-
-OPERATION_IN_PROGRESS
-    complete()         -> AUTHENTICATED
-```
-
-This prevents invalid sequences such as:
-
-```text
-withdraw()
-```
-
-before authentication.
-
----
-
-# 10. CardReader
-
-Hardware abstraction for reading cards.
-
-```java
-class CardReader {
-
-    private Card insertedCard;
-
-    public Card readCard();
-
-    public void ejectCard();
-
-    public boolean hasCard();
-}
-```
-
-### Why abstraction?
-
-The controller should not care whether the ATM uses:
-
-* Magnetic stripe
-* Chip
-* Contactless/NFC
-
-The implementation can change while the controller remains unchanged.
-
----
-
-# 11. CashDispenser
-
-Responsible only for dispensing cash.
-
-```java
-class CashDispenser {
-
-    private Map<Denomination, Integer> cashInventory;
-
-    public boolean hasSufficientCash(double amount);
-
-    public boolean dispense(double amount);
-}
-```
-
-### Important separation
-
-The cash dispenser should **not modify the bank account**.
-
-Correct flow:
-
-```text
-WithdrawOperation
-       |
-       +---- BankService -> debit account
-       |
-       +---- CashDispenser -> dispense cash
-       |
-       +---- ReceiptPrinter -> print receipt
-```
-
-The dispenser only deals with physical cash.
-
----
-
-# 12. ReceiptPrinter
-
-```java
-class ReceiptPrinter {
-
-    public void print(Transaction transaction);
-
-    public void printMessage(String message);
-}
-```
-
-Its only responsibility is printing.
+The card represents the physical/payment credential.
 
 It should not:
 
-* Validate PIN
-* Debit account
-* Decide withdrawal amount
+* Modify account balance
+* Dispense cash
+* Manage ATM state
 
-This follows **Single Responsibility Principle**.
-
----
-
-# 13. BankService
-
-The ATM should not directly manipulate the account database.
-
-```java
-class BankService {
-
-    public Account authenticate(Card card, String pin);
-
-    public Account getAccount(String accountNumber);
-
-    public boolean updateBalance(
-        String accountNumber,
-        double amount,
-        TransactionType type
-    );
-
-    public boolean validatePin(Card card, String pin);
-
-    public boolean changePin(
-        Card card,
-        String oldPin,
-        String newPin
-    );
-}
-```
-
-### Why?
-
-The ATM is a client of the bank.
-
-```text
-ATM
- |
- | API/service call
- v
-BankService
- |
- v
-Bank / Account System
-```
-
-The ATM should not know:
-
-```text
-SQL
-Database schema
-Account tables
-Transaction tables
-```
+Those responsibilities belong elsewhere.
 
 ---
 
-# 14. Account
+## 11. Account
 
 ```java
 class Account {
 
     private String accountNumber;
     private double balance;
-    private String pin;
-
-    public String getAccountNumber();
 
     public double getBalance();
 
-    public boolean debit(double amount);
+    public boolean withdraw(double amount);
 
-    public boolean credit(double amount);
-
-    public boolean validatePin(String pin);
+    public void deposit(double amount);
 }
 ```
 
-### Important interview point
+#### Responsibility
 
-In a real system, **PIN should not be stored as plaintext**.
+Own the financial balance.
+
+```text
+Account
+   │
+   ├── balance
+   ├── withdraw()
+   └── deposit()
+```
+
+The ATM should not directly manipulate:
+
+```java
+account.balance -= amount;
+```
 
 Instead:
 
-```text
-PIN
- |
- v
-Hash / secure verification
- |
- v
-Authentication service
+```java
+account.withdraw(amount);
 ```
 
-The simplified LLD uses `String pin` only for demonstrating the object model.
+This preserves encapsulation.
 
 ---
 
-# 15. WithdrawOperation
+## 12. BankService
+
+`BankService` acts as the ATM's interface to the banking backend.
 
 ```java
-class WithdrawOperation extends ATMOperation {
+class BankService {
 
-    @Override
-    protected boolean validate() {
-        // authenticated?
-        // valid amount?
-        // sufficient account balance?
-        // ATM has sufficient cash?
-        return true;
-    }
+    public boolean authenticate(
+        Card card,
+        String pin
+    );
 
-    @Override
-    public boolean handle() {
+    public double getBalance(
+        String accountNumber
+    );
 
-        if (!validate()) {
-            return false;
-        }
+    public boolean withdrawMoney(
+        String accountNumber,
+        double amount
+    );
 
-        atmContext.getBankService()
-                  .updateBalance(...);
-
-        atmContext.getCashDispenser()
-                  .dispense(...);
-
-        atmContext.getReceiptPrinter()
-                  .print(...);
-
-        return true;
-    }
+    public boolean depositMoney(
+        String accountNumber,
+        double amount
+    );
 }
 ```
 
-### Withdrawal flow
+Conceptually:
 
 ```text
-User
- |
- | withdraw ₹10,000
- v
-ATMController
- |
- v
-WithdrawOperation
- |
- +--> Validate session
- |
- +--> Validate amount
- |
- +--> Check account balance
- |
- +--> Check ATM cash
- |
- +--> Debit bank account
- |
- +--> Dispense cash
- |
- +--> Print receipt
- |
- v
-Success
+ATM
+ │
+ ▼
+BankService
+ │
+ ├── authenticate
+ ├── getBalance
+ ├── withdraw
+ └── deposit
+      │
+      ▼
+   Account
 ```
+
+#### Why have this abstraction?
+
+Because the ATM shouldn't know how the bank stores accounts.
+
+Today:
+
+```text
+ATM → BankService → in-memory DB
+```
+
+Tomorrow:
+
+```text
+ATM → BankService → REST/gRPC → Banking Platform → DB
+```
+
+The ATM design doesn't need to change.
 
 ---
 
-# 16. DepositOperation
+## 13. Cash Dispensing
+
+This is the most interesting part of the design.
+
+Suppose the ATM has:
+
+```text
+₹100 notes
+₹50 notes
+₹20 notes
+```
+
+User requests:
+
+```text
+₹270
+```
+
+The ATM needs to determine:
+
+```text
+100 + 100 + 50 + 20 = 270
+```
+
+This is modeled using the **Chain of Responsibility Pattern**.
+
+---
+
+## 14. `DispenseChain`
 
 ```java
-class DepositOperation extends ATMOperation {
+interface DispenseChain {
 
-    @Override
-    public boolean handle() {
-        // validate
-        // accept cash
-        // credit account
-        // print receipt
-        return true;
-    }
+    void setNextChain(
+        DispenseChain nextChain
+    );
+
+    void dispense(int amount);
+
+    boolean canDispense(int amount);
 }
 ```
 
-The important difference:
-
-```text
-Withdrawal:
-Account balance -= amount
-ATM cash -= amount
-
-Deposit:
-Account balance += amount
-ATM cash += amount
-```
-
-A production system would additionally need to deal with cash validation, denomination counting, counterfeit detection, and deposit reconciliation.
+Each node has the same interface.
 
 ---
 
-# 17. BalanceInquiryOperation
+## 15. `NoteDispenser`
+
+Common implementation:
 
 ```java
-class BalanceInquiryOperation extends ATMOperation {
+abstract class NoteDispenser
+        implements DispenseChain {
 
-    @Override
-    public boolean handle() {
+    protected int noteValue;
+    protected int numberOfNotes;
 
-        Account account =
-            atmContext.getCurrentSession().getAccount();
+    protected DispenseChain nextChain;
 
-        double balance = account.getBalance();
-
-        atmContext.getReceiptPrinter()
-                  .printMessage(
-                      "Balance: " + balance
-                  );
-
-        return true;
+    public void setNextChain(
+        DispenseChain nextChain
+    ) {
+        this.nextChain = nextChain;
     }
-}
-```
 
-This operation generally does not modify account state.
+    public void dispense(int amount) {
+        // dispense own denomination
+        // forward remaining amount
+    }
 
----
-
-# 18. PinChangeOperation
-
-```java
-class PinChangeOperation extends ATMOperation {
-
-    @Override
-    public boolean handle() {
-
-        // validate old PIN
-        // validate new PIN
-        // call BankService
-        // print confirmation
-
-        return true;
+    public boolean canDispense(int amount) {
+        // determine whether chain can fulfill request
     }
 }
 ```
 
-PIN-change logic belongs behind `BankService`, rather than inside the ATM hardware layer.
-
 ---
 
-# 19. Models
-
-## Card
+## 16. Concrete Dispensers
 
 ```java
-class Card {
+class NoteDispenser100
+        extends NoteDispenser {
 
-    private String cardNumber;
-    private LocalDate expiryDate;
-    private String cardHolderName;
+    public NoteDispenser100(int count) {
+        noteValue = 100;
+        numberOfNotes = count;
+    }
 }
 ```
 
----
-
-## Transaction
-
 ```java
-class Transaction {
+class NoteDispenser50
+        extends NoteDispenser {
 
-    private String id;
-    private TransactionType type;
-    private double amount;
-    private LocalDateTime timestamp;
-    private TransactionStatus status;
+    public NoteDispenser50(int count) {
+        noteValue = 50;
+        numberOfNotes = count;
+    }
 }
 ```
 
----
-
-## TransactionType
-
 ```java
-enum TransactionType {
-    WITHDRAW,
-    DEPOSIT,
-    PIN_CHANGE,
-    BALANCE_INQUIRY
+class NoteDispenser20
+        extends NoteDispenser {
+
+    public NoteDispenser20(int count) {
+        noteValue = 20;
+        numberOfNotes = count;
+    }
 }
 ```
 
----
-
-## TransactionStatus
-
-```java
-enum TransactionStatus {
-    SUCCESS,
-    FAILED,
-    PENDING
-}
-```
-
----
-
-# 20. Denomination
-
-Represents physical cash denominations.
-
-```java
-class Denomination {
-
-    private int value;
-    private int count;
-}
-```
-
-For example:
+Chain:
 
 ```text
-₹500 -> 100 notes
-₹200 -> 50 notes
-₹100 -> 80 notes
+NoteDispenser100
+        │
+        ▼
+NoteDispenser50
+        │
+        ▼
+NoteDispenser20
 ```
-
-The `CashDispenser` can use this information to determine whether an amount can actually be dispensed.
 
 ---
 
-# 21. Design Patterns Used
+## 17. How Chain of Responsibility Works
 
-## 1. Command / operation handler
-
-Each operation encapsulates one use case; a registry maps the requested operation type to its handler. Use Chain of Responsibility only for an actual ordered validation pipeline.
+Suppose:
 
 ```text
-ATMOperation
-      |
-      +--> WithdrawOperation
-      |
-      +--> DepositOperation
-      |
-      +--> BalanceInquiryOperation
-      |
-      +--> PinChangeOperation
+Withdrawal = ₹270
 ```
 
-### Benefit
-
-New operations can be added without making `ATMController` a giant conditional class.
-
----
-
-## 2. State Pattern / State Machine
-
-ATM has different states:
+Request enters:
 
 ```text
-IDLE
-CARD_INSERTED
-AUTHENTICATED
-OPERATION_IN_PROGRESS
+100 dispenser
 ```
 
-The validity of an action depends on the current state.
+It takes:
 
-This prevents invalid workflows.
+```text
+₹100 × 2
+```
+
+Remaining:
+
+```text
+₹70
+```
+
+Pass to next:
+
+```text
+50 dispenser
+```
+
+It takes:
+
+```text
+₹50 × 1
+```
+
+Remaining:
+
+```text
+₹20
+```
+
+Pass to next:
+
+```text
+20 dispenser
+```
+
+It takes:
+
+```text
+₹20 × 1
+```
+
+Remaining:
+
+```text
+₹0
+```
+
+Final:
+
+```text
+₹100 × 2
+₹50  × 1
+₹20  × 1
+```
 
 ---
 
-## 3. Strategy Pattern — Possible Extension
+## 18. Why Chain of Responsibility?
 
-Different cash-dispensing strategies can be represented as strategies.
+Without the pattern:
 
 ```java
-interface CashDispensingStrategy {
-    List<Denomination> calculateNotes(double amount);
+if (amount >= 100) {
+   ...
+}
+
+if (amount >= 50) {
+   ...
+}
+
+if (amount >= 20) {
+   ...
 }
 ```
 
-Implementations:
+This becomes increasingly difficult to maintain.
 
-```java
-class GreedyCashStrategy
-        implements CashDispensingStrategy {
-}
-
-class OptimizedCashStrategy
-        implements CashDispensingStrategy {
-}
-```
-
-This is useful when the ATM supports different denomination-selection algorithms.
-
----
-
-## 4. Facade-like Role of ATMController
-
-`ATMController` provides a simple interface to the client:
-
-```java
-startSession()
-authenticatePin()
-selectOperation()
-performOperation()
-endSession()
-```
-
-The client does not need to understand the internal ATM components.
-
----
-
-# 22. SOLID Principles
-
-## Single Responsibility Principle
-
-Each component has one primary responsibility.
+With the chain:
 
 ```text
-CardReader       -> read card
-CashDispenser    -> dispense cash
-ReceiptPrinter   -> print receipt
-BankService      -> banking operations
-ATMController    -> orchestration
-WithdrawOperation -> withdrawal workflow
+100 → 50 → 20
 ```
+
+Adding a denomination becomes:
+
+```text
+100 → 50 → 20 → 10
+```
+
+Existing classes don't need to change.
+
+This follows the **Open/Closed Principle**.
 
 ---
 
-## Open/Closed Principle
+## 19. `CashDispenser`
 
-Adding:
-
-```text
-MiniStatement
-FundTransfer
-BillPayment
-```
-
-should primarily require new operation classes.
+`CashDispenser` is the higher-level abstraction over the chain.
 
 ```java
-class MiniStatementOperation
-        extends ATMOperation {
+class CashDispenser {
+
+    private DispenseChain dispenseChain;
+
+    public boolean canDispense(int amount);
+
+    public void dispenseCash(int amount);
 }
 ```
 
-Existing operations remain unchanged.
-
----
-
-## Liskov Substitution Principle
-
-Every concrete operation should be usable through:
-
-```java
-ATMOperation
-```
-
-For example:
-
-```java
-ATMOperation operation =
-        new WithdrawOperation();
-```
-
-The controller should not need to know the concrete type.
-
----
-
-## Interface Segregation Principle
-
-Instead of one massive hardware interface:
-
-```java
-ATMHardware {
-    readCard();
-    dispenseCash();
-    printReceipt();
-    ...
-}
-```
-
-we keep focused abstractions:
+Relationship:
 
 ```text
-CardReader
+ATM
+ │
+ ▼
 CashDispenser
-ReceiptPrinter
+ │
+ ▼
+DispenseChain
+ │
+ ├── 100
+ ├── 50
+ └── 20
+```
+
+The ATM doesn't need to know:
+
+```text
+How many ₹100 notes?
+How many ₹50 notes?
+How many ₹20 notes?
+```
+
+It simply asks:
+
+```java
+cashDispenser.dispenseCash(amount);
 ```
 
 ---
 
-## Dependency Inversion Principle
+## 20. Complete Class Responsibility Map
 
-High-level classes should depend on abstractions rather than concrete implementations.
+| Class                | Responsibility               |
+| -------------------- | ---------------------------- |
+| `ATM`                | Main coordinator/facade      |
+| `ATMState`           | State contract               |
+| `IdleState`          | Waiting for card             |
+| `HasCardState`       | Card inserted, awaiting PIN  |
+| `AuthenticatedState` | Authenticated transaction    |
+| `Card`               | Card credentials             |
+| `Account`            | Balance + account operations |
+| `BankService`        | Banking operations           |
+| `CashDispenser`      | Cash dispensing facade       |
+| `DispenseChain`      | Cash dispenser contract      |
+| `NoteDispenser`      | Common denomination logic    |
+| `NoteDispenser100`   | ₹/$100 notes                 |
+| `NoteDispenser50`    | ₹/$50 notes                  |
+| `NoteDispenser20`    | ₹/$20 notes                  |
+| `OperationType`      | Supported ATM operations     |
 
-For example:
+---
 
-```java
-BankService
+## 21. Design Patterns Used
+
+## 1. State Pattern
+
+Used for:
+
+```text
+Idle
+HasCard
+Authenticated
 ```
 
-could eventually become:
+#### Problem solved
+
+Without it:
 
 ```java
-interface BankService {
-    Account authenticate(...);
-    boolean updateBalance(...);
+if (state == IDLE) ...
+else if (state == HAS_CARD) ...
+else if (state == AUTHENTICATED) ...
+```
+
+With it:
+
+```java
+currentState.enterPin(...);
+```
+
+#### Benefit
+
+Adding a new state doesn't require modifying the central `ATM` class.
+
+---
+
+## 2. Chain of Responsibility
+
+Used for:
+
+```text
+100 → 50 → 20
+```
+
+#### Problem solved
+
+Delegates responsibility for dispensing different denominations.
+
+#### Benefit
+
+Easy to add:
+
+```text
+10
+5
+2
+1
+```
+
+without rewriting existing dispenser logic.
+
+---
+
+## 3. Facade Pattern
+
+`ATM` provides a simple API:
+
+```java
+insertCard()
+enterPin()
+selectOperation()
+ejectCard()
+```
+
+Internally it coordinates:
+
+```text
+ATMState
+BankService
+Account
+CashDispenser
+DispenseChain
+```
+
+The client doesn't need to know these details.
+
+---
+
+## 4. Singleton
+
+If modeling one physical ATM controller:
+
+```java
+ATM.getInstance()
+```
+
+ensures one controller instance.
+
+Typical implementation:
+
+```java
+private ATM() {}
+
+private static ATM instance;
+
+public static ATM getInstance() {
+
+    if (instance == null) {
+        instance = new ATM();
+    }
+
+    return instance;
 }
 ```
 
-Then:
+#### Interview discussion
 
-```java
-RealBankService
-MockBankService
-```
+Don't blindly defend Singleton.
 
-can implement it.
+An interview-ready trade-off is:
 
-This makes unit testing much easier.
+> "For a physical ATM, there is naturally one controller per machine, but I would avoid using a process-wide Singleton if the service may eventually model multiple ATM machines. In that case, an ATM instance should represent one physical machine."
+
+That's a strong architectural trade-off.
 
 ---
 
-# 23. Main Withdrawal Sequence
+## 22. End-to-End Withdrawal Flow
 
-A typical interview sequence diagram can be explained as:
+Suppose:
 
 ```text
-Customer
-   |
-   | insertCard()
-   v
-ATMController
-   |
-   | readCard()
-   v
-CardReader
-   |
-   | authenticate(pin)
-   v
+Card = C1
+PIN = 1234
+Withdrawal = ₹570
+```
+
+#### Step 1 — Insert card
+
+```text
+Client
+  │
+  ▼
+ATM.insertCard()
+  │
+  ▼
+IdleState.insertCard()
+  │
+  ▼
+HasCardState
+```
+
+#### Step 2 — Enter PIN
+
+```text
+ATM.enterPin()
+       │
+       ▼
+HasCardState.enterPin()
+       │
+       ▼
+BankService.authenticate()
+       │
+       ▼
+AuthenticatedState
+```
+
+#### Step 3 — Select withdrawal
+
+```text
+ATM.selectOperation(WITHDRAW_CASH, 570)
+              │
+              ▼
+AuthenticatedState
+              │
+              ▼
+ATM.withdrawCash(570)
+```
+
+#### Step 4 — Check balance
+
+```text
+ATM
+ │
+ ▼
 BankService
-   |
-   | Account
-   v
-ATMController
-   |
-   | selectOperation(WITHDRAW)
-   v
-WithdrawOperation
-   |
-   +---- check account balance
-   |
-   +---- check ATM cash
-   |
-   +---- debit account
-   |
-   +---- dispense cash
-   |
-   +---- print receipt
-   |
-   v
-Transaction SUCCESS
+ │
+ ▼
+Account
+```
+
+If balance is insufficient:
+
+```text
+Withdrawal rejected
+```
+
+#### Step 5 — Check ATM cash
+
+```text
+CashDispenser.canDispense(570)
+```
+
+#### Step 6 — Debit account
+
+```text
+BankService.withdrawMoney(...)
+```
+
+#### Step 7 — Dispense
+
+```text
+CashDispenser
+      │
+      ▼
+100 dispenser
+      │
+      ▼
+50 dispenser
+      │
+      ▼
+20 dispenser
+```
+
+Potential result:
+
+```text
+100 × 5 = 500
+50  × 1 = 50
+20  × 1 = 20
+
+Total = 570
+```
+
+#### Step 8 — End session
+
+```text
+AuthenticatedState
+        │
+        ▼
+ejectCard()
+        │
+        ▼
+IdleState
 ```
 
 ---
 
-# 24. Withdrawal Validation
+## 23. Important Failure Scenarios
 
-Withdrawal should validate multiple conditions.
+These are useful **staff-level discussion points**.
 
-```text
-                    Withdrawal
-                        |
-              +---------+---------+
-              |                   |
-        Session valid?       Amount valid?
-              |                   |
-              +---------+---------+
-                        |
-                 Account balance?
-                        |
-                 ATM cash available?
-                        |
-                 Denomination valid?
-                        |
-                     SUCCESS
-```
-
-Possible failures:
+#### Invalid card
 
 ```text
-Invalid PIN
-Insufficient account balance
-Insufficient ATM cash
-Invalid amount
-ATM hardware failure
-Bank service unavailable
-Transaction timeout
+insertCard()
+     ↓
+Card not recognized
+     ↓
+Reject/eject
 ```
 
 ---
 
-# 25. Important Transaction Consistency Problem
-
-One of the most important interview discussions is:
-
-> What happens if the account is debited but the ATM fails to dispense cash?
-
-Example:
+#### Wrong PIN
 
 ```text
-Bank account
-₹50,000
-
-        |
-        | debit ₹10,000
-        v
-
-₹40,000
-
-        |
-        | ATM dispenser fails
-        v
-
-Customer receives ₹0
+HasCardState
+      ↓
+authenticate()
+      ↓
+FAIL
+      ↓
+ejectCard()
+      ↓
+IdleState
 ```
 
-This creates a serious consistency problem.
+In a production system, you would additionally discuss:
 
-A robust system needs a transaction/reconciliation mechanism.
+* retry count
+* card blocking
+* fraud detection
+* audit logging
 
-Possible approach:
+---
+
+#### Insufficient account balance
 
 ```text
-START TRANSACTION
+Account.balance < withdrawal
+```
 
-Reserve/debit amount
-        |
-        v
+Don't dispense cash.
+
+---
+
+#### ATM doesn't have enough cash
+
+```text
+cashDispenser.canDispense(amount)
+       ↓
+false
+```
+
+Reject before debiting the account.
+
+---
+
+#### Amount cannot be represented
+
+For denominations:
+
+```text
+100, 50, 20
+```
+
+An amount such as:
+
+```text
+₹30
+```
+
+can be represented:
+
+```text
+20 + 10
+```
+
+only if ₹10 exists.
+
+If only:
+
+```text
+100, 50, 20
+```
+
+then:
+
+```text
+₹30 → impossible
+```
+
+Therefore `canDispense()` is important.
+
+---
+
+## 24. Critical Consistency Problem
+
+An important interview discussion:
+
+```text
+Debit account
+      ↓
 Dispense cash
-        |
-   +----+----+
-   |         |
-Success     Failure
-   |         |
-Commit      Rollback /
-            compensate
+```
 
-        |
-        v
+What happens if:
+
+```text
+Account successfully debited
+             ↓
+Cash dispenser fails
+```
+
+You have:
+
+```text
+Account: -₹500
+Customer: received ₹0
+```
+
+That's a serious consistency problem.
+
+The reference implementation addresses this at the simplified design level by checking whether cash can be dispensed before withdrawal and compensating the account if dispensing subsequently fails. ([Rohan Handore Portfolio][1])
+
+Conceptually:
+
+```text
+1. Validate balance
+2. Validate ATM cash availability
+3. Debit account
+4. Dispense cash
+5. If dispensing fails → compensate/reverse debit
+```
+
+For a production banking system, I'd discuss this further as a **transaction/saga-style problem**, because ATM hardware and the bank backend are separate systems.
+
+---
+
+## 25. Atomicity Discussion
+
+Withdrawal isn't really one operation.
+
+It consists of:
+
+```text
+Authenticate
+     ↓
+Check balance
+     ↓
+Check cash inventory
+     ↓
+Debit account
+     ↓
+Dispense physical cash
+     ↓
 Record transaction
 ```
 
-In a distributed ATM/bank environment, this is generally handled through **transaction states, idempotency, reconciliation, and compensating operations**, rather than assuming a single ACID transaction spans the physical ATM and bank system.
+The challenge is that the bank database and physical cash dispenser cannot participate in one normal ACID transaction.
+
+Therefore, production systems need mechanisms such as:
+
+```text
+Transaction ID
+Idempotency
+Audit log
+Reconciliation
+Compensation
+Hardware status
+Journal
+```
+
+For example:
+
+```text
+Transaction T123
+
+DEBIT_STARTED
+      ↓
+ACCOUNT_DEBITED
+      ↓
+DISPENSE_STARTED
+      ↓
+CASH_DISPENSED
+      ↓
+TRANSACTION_COMPLETED
+```
+
+If the ATM crashes after:
+
+```text
+ACCOUNT_DEBITED
+```
+
+but before:
+
+```text
+CASH_DISPENSED
+```
+
+the transaction journal can be reconciled.
 
 ---
 
-# 26. Idempotency
+## 26. Idempotency
 
 Suppose the ATM sends:
 
 ```text
-Debit ₹10,000
+withdraw(T123, ₹500)
 ```
 
-but the network times out.
+and the bank successfully processes it.
 
-The ATM doesn't know whether the bank processed it.
+Network response is lost.
 
-If it retries blindly:
+ATM retries:
 
 ```text
-Debit ₹10,000
-Debit ₹10,000
+withdraw(T123, ₹500)
 ```
 
-the customer could lose ₹20,000.
-
-Therefore every transaction should have a unique ID:
+Without idempotency:
 
 ```text
-transactionId = TXN12345
+₹500 debit
++
+₹500 debit
+=
+₹1000 deducted
 ```
 
-The bank can guarantee:
+With:
 
 ```text
-TXN12345 -> processed only once
+transactionId = T123
 ```
 
-This is an important real-world distributed-systems consideration.
+the bank recognizes the duplicate request.
+
+```text
+T123 → already processed
+```
+
+and returns the previous result.
+
+**This is a useful staff-level point.**
 
 ---
 
-# 27. Failure Handling
+## 27. Concurrency
 
-Possible failure scenarios:
-
-### Invalid PIN
-
-```text
-PIN incorrect
-    |
-increment failed attempts
-    |
-if threshold exceeded
-    |
-card blocked / retained
-```
-
-### Insufficient balance
-
-```text
-BankService
-    |
-balance < requested amount
-    |
-FAIL
-```
-
-### Insufficient ATM cash
-
-```text
-CashDispenser
-    |
-cash unavailable
-    |
-FAIL
-```
-
-### Network failure
-
-```text
-ATM
- |
-BankService unavailable
- |
-transaction = PENDING / FAILED
-```
-
-### Hardware failure
-
-```text
-CashDispenser failure
-ReceiptPrinter failure
-CardReader failure
-```
-
-These should be handled separately from business validation.
-
----
-
-# 28. Concurrency Considerations
-
-Consider two requests against the same account:
-
-```text
-Balance = ₹10,000
-
-ATM A -> withdraw ₹8,000
-ATM B -> withdraw ₹8,000
-```
-
-Without concurrency control:
-
-```text
-ATM A sees ₹10,000
-ATM B sees ₹10,000
-
-Both withdraw ₹8,000
-
-Final balance = -₹6,000
-```
-
-The bank service must provide concurrency-safe balance updates.
+Two transactions must not simultaneously consume the same cash inventory.
 
 For example:
 
-```sql
-UPDATE Account
-SET balance = balance - 8000
-WHERE account_number = ?
-AND balance >= 8000;
+```text
+ATM has:
+₹100 × 1
 ```
 
-Then check affected rows.
+Two users request:
 
-Or use appropriate transactional locking/optimistic concurrency mechanisms.
+```text
+User A → ₹100
+User B → ₹100
+```
+
+Without synchronization:
+
+```text
+A sees 1 note
+B sees 1 note
+
+A dispenses
+B dispenses
+
+Inventory becomes -1
+```
+
+So cash inventory needs concurrency control.
+
+Possible approaches:
+
+```text
+synchronized methods
+locks
+atomic counters
+database-backed inventory
+single-threaded hardware command queue
+```
+
+The reference implementation also uses locking around account balance and dispenser inventory operations. ([Rohan Handore Portfolio][1])
 
 ---
 
-# 29. Thread Safety
+## 28. Extensibility
 
-ATM hardware is generally sequential from the perspective of one physical machine, but the bank service is shared across many ATMs.
+#### New operation
 
-Therefore:
+Current:
 
 ```text
-ATM 1 ----\
-ATM 2 -----\
-ATM 3 ------> BankService ---> Account
-ATM 4 -----/
+CHECK_BALANCE
+WITHDRAW_CASH
+DEPOSIT_CASH
 ```
 
-`BankService` and the underlying account store must be thread-safe and transactionally consistent.
+Potential:
 
-The ATM itself should also prevent multiple operations from being executed simultaneously for the same session.
+```text
+TRANSFER_MONEY
+CHANGE_PIN
+MINI_STATEMENT
+CASH_WITHDRAWAL_LIMIT
+```
+
+A clean design can introduce additional operation strategies/services rather than allowing `AuthenticatedState` to become a giant switch.
+
+For example:
+
+```text
+Operation
+   │
+   ├── CheckBalanceOperation
+   ├── WithdrawOperation
+   ├── DepositOperation
+   └── TransferOperation
+```
+
+This is a potential evolution of the basic design.
 
 ---
 
-# 30. Extending the Design
+## 29. Adding New Cash Denomination
 
-Suppose tomorrow we add:
+Current:
 
 ```text
-Transfer Money
-Mini Statement
-Bill Payment
-Mobile Recharge
-Cheque Deposit
+100
+ ↓
+50
+ ↓
+20
 ```
 
-We can create:
+Add ₹10:
+
+```text
+100
+ ↓
+50
+ ↓
+20
+ ↓
+10
+```
+
+Create:
 
 ```java
-class TransferOperation
-        extends ATMOperation {
-}
+class NoteDispenser10
+        extends NoteDispenser {
 
-class MiniStatementOperation
-        extends ATMOperation {
-}
-
-class BillPaymentOperation
-        extends ATMOperation {
+    public NoteDispenser10(int count) {
+        super(10, count);
+    }
 }
 ```
 
-The existing architecture remains largely unchanged.
+No modification to:
 
-This is one of the biggest advantages of the design.
+```text
+NoteDispenser100
+NoteDispenser50
+NoteDispenser20
+```
+
+This demonstrates **Open/Closed Principle** nicely.
 
 ---
 
-# 31. How to Explain the Design in an Interview
+## 30. SOLID Analysis
 
-A good explanation order is:
+#### Single Responsibility
 
-### Step 1 — Identify actors
+Good separation:
 
 ```text
-Customer
-ATM
-Bank
+ATM              → orchestration
+BankService      → banking interaction
+Account          → balance
+ATMState         → session behavior
+CashDispenser    → dispensing
+NoteDispenser    → denomination handling
 ```
 
-### Step 2 — Identify hardware
+---
+
+#### Open/Closed
+
+Add:
 
 ```text
-CardReader
+NoteDispenser10
+```
+
+without modifying existing dispensers.
+
+Add:
+
+```text
+NewATMState
+```
+
+without modifying existing state implementations.
+
+---
+
+#### Liskov Substitution
+
+Every:
+
+```text
+IdleState
+HasCardState
+AuthenticatedState
+```
+
+can be used wherever:
+
+```text
+ATMState
+```
+
+is expected.
+
+Likewise:
+
+```text
+NoteDispenser100
+NoteDispenser50
+NoteDispenser20
+```
+
+can be treated as:
+
+```text
+NoteDispenser
+```
+
+---
+
+#### Dependency Inversion
+
+`ATM` depends conceptually on abstractions:
+
+```text
+ATMState
+DispenseChain
+```
+
+rather than concrete implementations.
+
+A production implementation can go further by injecting:
+
+```java
+BankService
 CashDispenser
-ReceiptPrinter
 ```
 
-### Step 3 — Identify domain objects
-
-```text
-Card
-Account
-Transaction
-```
-
-### Step 4 — Identify operations
-
-```text
-Withdraw
-Deposit
-BalanceInquiry
-PINChange
-```
-
-### Step 5 — Introduce controller
-
-```text
-ATMController
-```
-
-### Step 6 — Introduce extensibility
-
-Explain:
-
-> I don't want ATMController to contain separate logic for every ATM operation, so I model operations using a common ATMOperation abstraction.
-
-### Step 7 — Introduce operation dispatch
-
-Map `OperationType` to an `ATMOperation` handler with a registry or factory. Use Chain of Responsibility only if validation is an ordered pipeline where each validator can reject or forward the request.
-
-```text
-ATMOperation
-     |
-     +--> Withdraw
-     +--> Deposit
-     +--> Balance
-     +--> PIN Change
-```
-
-### Step 8 — Discuss state
-
-```text
-IDLE
-CARD_INSERTED
-AUTHENTICATED
-OPERATION_IN_PROGRESS
-```
-
-### Step 9 — Discuss failure cases
-
-Especially:
-
-```text
-Debit succeeded
-Cash dispensing failed
-```
-
-### Step 10 — Discuss concurrency/idempotency
-
-This demonstrates system-design maturity beyond basic class diagrams.
+instead of constructing them inside `ATM`.
 
 ---
 
-# 32. Interview-Level Design Summary
+## 31. Interview-Level Design Improvements
 
-The most important relationships are:
+If you're targeting **Staff/SDE3**, don't stop at the basic class diagram.
+
+Discuss these as extensions:
+
+#### Security
 
 ```text
-ATMClient
-    |
-    v
-ATMController
-    |
-    +--------> ATMOperation
-    |               |
-    |               +--> WithdrawOperation
-    |               +--> DepositOperation
-    |               +--> BalanceInquiryOperation
-    |               +--> PinChangeOperation
-    |
-    +--------> ATMSession
-    |
-    +--------> ATMContext
-                    |
-                    +--> CardReader
-                    +--> CashDispenser
-                    +--> ReceiptPrinter
-                    +--> BankService
-                              |
-                              v
-                           Account
+PIN encryption
+PIN retry limits
+Card blocking
+Session timeout
+Audit logging
+Tamper detection
 ```
 
-### Patterns
+#### Reliability
 
-| Pattern / Principle     | Where                   | Why                                         |
-| ----------------------- | ----------------------- | ------------------------------------------- |
-| Command / operation handler | `ATMOperation`       | Isolate each ATM use case                    |
-| State                   | ATM lifecycle           | Control valid actions by state              |
-| Strategy                | Cash dispensing         | Pluggable denomination algorithms           |
-| SRP                     | Hardware/services       | Separate responsibilities                   |
-| OCP                     | ATM operations          | Add operations without modifying controller |
-| DIP                     | BankService abstraction | Easier testing and loose coupling           |
-| Facade-like Controller  | `ATMController`         | Simplify client interaction                 |
+```text
+Idempotency
+Transaction journal
+Reconciliation
+Retry policies
+Compensation
+Hardware failure handling
+```
+
+#### Concurrency
+
+```text
+Account locking
+Cash inventory locking
+Transaction serialization
+```
+
+#### Distributed architecture
+
+```text
+ATM
+ │
+ ▼
+ATM Gateway
+ │
+ ├── Authentication Service
+ ├── Account Service
+ ├── Transaction Service
+ └── Fraud/Risk Service
+```
+
+#### Observability
+
+```text
+Transaction ID
+Correlation ID
+Structured logs
+Metrics
+Tracing
+Hardware health metrics
+```
 
 ---
 
-# 33. What I'd Improve in a Production Version
+## 32. Staff-Level Interview Summary
 
-The diagram is suitable for an **LLD interview**, but a production-grade design would additionally introduce:
+A concise explanation:
 
-* `BankService` interface
-* `TransactionService`
-* `TransactionRepository`
-* `ATMInventoryService`
-* Secure PIN verification
-* Transaction IDs and idempotency
-* Distributed transaction/reconciliation handling
-* Hardware failure recovery
-* Audit logging
-* Rate limiting / PIN attempt limits
-* ATM cash inventory management
-* Card retention
-* Session timeout
-* Monitoring and telemetry
-* Currency/denomination abstraction
-* Concurrency control
-* External bank API timeout/retry policies
+> "I model the ATM as a facade over several subsystems. The ATM session lifecycle is modeled using the State pattern, so behavior such as inserting a card, entering a PIN, and selecting an operation is delegated to the current state instead of using conditional state checks. Banking operations are abstracted behind BankService so the ATM isn't coupled to account persistence. Cash dispensing is modeled separately using a Chain of Responsibility, where each denomination handles as much of the requested amount as possible and forwards the remainder. This makes denominations independently extensible. For production, I would additionally address withdrawal atomicity, idempotency, concurrency around cash inventory, transaction journaling, reconciliation, and hardware failure."
 
-The key interview distinction is:
+That is the **core story of the design**.
 
-> **LLD should model the object interactions cleanly; it should not turn into a production distributed-system implementation unless the interviewer asks for those concerns.**
+([Rohan Handore Portfolio][1])
 
----
-
-# 34. Staff-Level Deep Dive: Cash Withdrawal Recovery
-
-The hard boundary is physical cash: a bank API and a dispenser cannot share one ACID transaction. Treat withdrawal as a durable workflow, not a sequence of booleans.
-
-```text
-CREATED -> DEBIT_PENDING -> DEBITED -> DISPENSE_PENDING
-                                      |             |
-                                      v             v
-                                  DISPENSED     EXCEPTION_PENDING
-                                      |             |
-                                      v             v
-                                  COMPLETED   RECONCILIATION
-```
-
-* Assign one stable transaction ID before the first network call. The bank must make debit/status requests idempotent for that ID; a timeout means “unknown,” not “failed.”
-* Persist each state transition and the dispenser's command/result. On restart, query bank status and reconcile dispenser counters/sensors before retrying or reversing anything.
-* Never automatically credit the account just because dispense timed out: cash may have been presented even if the acknowledgment was lost. Route ambiguous cases to reconciliation and retain an auditable trail.
-* Expose transaction status to the customer as pending when the outcome is uncertain. Exactly-once physical dispensing is not a safe assumption unless the hardware itself supports durable deduplication and confirmation.
-
-The interview signal is recognizing the boundary and defining recovery ownership, not claiming a distributed transaction can make the hardware atomic.
+[1]: https://rohanhandore.com/LLD%20interview%20questions/MEDIUM/Design%20Atm%20%EF%BD%9C%20LLD%20%EF%BD%9C%20AlgoMaster.io%20%2830_12_2025%2018%EF%BC%9A19%EF%BC%9A35%29.html "Design Atm | LLD | AlgoMaster.io"

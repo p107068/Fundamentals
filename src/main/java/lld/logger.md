@@ -1,6 +1,14 @@
-# Logging System — Chain of Responsibility
+# Logging System — Low-Level Design
 
 ![Logging system class diagram](resource/logger.png)
+
+## Revision Snapshot
+
+| Lens | Recall |
+| --- | --- |
+| Core model | Log event -> routing/filtering -> one or more appenders |
+| Design leverage | Chain of Responsibility is useful for ordered handlers; production routing often needs threshold filters and fan-out |
+| Hard problem | Async sinks require bounded queues, explicit overload behavior, and loss/latency observability |
 
 ## 1. Problem Statement
 
@@ -33,7 +41,7 @@ The request should travel through the chain until the appropriate processor hand
 
 ---
 
-# 2. Why Chain of Responsibility?
+## 2. Why Chain of Responsibility?
 
 The main problem is that the client should **not need to know which concrete logger handles a particular log level**.
 
@@ -81,7 +89,7 @@ The chain decides who handles it.
 
 ---
 
-# 3. Core Design
+## 3. Core Design
 
 The design has three major parts:
 
@@ -117,7 +125,7 @@ It contains the common chain logic.
 
 ---
 
-# 4. Log Levels
+## 4. Log Levels
 
 The base class maintains the supported levels.
 
@@ -141,7 +149,7 @@ The numerical ordering is important because the processor can determine whether 
 
 ---
 
-# 5. LogProcessor — Abstract Base Class
+## 5. LogProcessor — Abstract Base Class
 
 The central abstraction is:
 
@@ -180,7 +188,7 @@ The exact implementation can vary slightly, but these are the important responsi
 
 ---
 
-# 6. Why is LogProcessor Abstract?
+## 6. Why is LogProcessor Abstract?
 
 `LogProcessor` represents the **common behavior of every logger**, but it doesn't know how an actual message should be written.
 
@@ -211,7 +219,7 @@ Different logging behavior
 
 ---
 
-# 7. `level` Field
+## 7. `level` Field
 
 Each processor knows which log level it is responsible for.
 
@@ -243,7 +251,7 @@ The same idea applies to all processors.
 
 ---
 
-# 8. `nextLoggerProcessor`
+## 8. `nextLoggerProcessor`
 
 This is the key field implementing the chain.
 
@@ -285,7 +293,7 @@ This is one of the most important LLD concepts in this problem.
 
 ---
 
-# 9. `setNextLogger()`
+## 9. `setNextLogger()`
 
 The chain is constructed using:
 
@@ -319,7 +327,7 @@ The client doesn't need to understand the internal forwarding logic.
 
 ---
 
-# 10. `logMessage()` — Core Algorithm
+## 10. `logMessage()` — Core Algorithm
 
 This is the heart of the design.
 
@@ -340,7 +348,7 @@ public void logMessage(int level, String message) {
 
 There are two responsibilities:
 
-### Step 1 — Check current processor
+#### Step 1 — Check current processor
 
 ```java
 if (this.level == level) {
@@ -350,7 +358,7 @@ if (this.level == level) {
 
 If the current processor is responsible for this level, it writes the message.
 
-### Step 2 — Forward to next processor
+#### Step 2 — Forward to next processor
 
 ```java
 if (nextLoggerProcessor != null) {
@@ -362,7 +370,7 @@ The request is forwarded to the next processor.
 
 ---
 
-# 11. Example — ERROR Message
+## 11. Example — ERROR Message
 
 Suppose:
 
@@ -376,7 +384,7 @@ The request starts at:
 DebugLogProcessor
 ```
 
-### Debug Processor
+#### Debug Processor
 
 ```text
 current level = DEBUG
@@ -391,7 +399,7 @@ Forward:
 Debug → Info
 ```
 
-### Info Processor
+#### Info Processor
 
 ```text
 current level = INFO
@@ -406,7 +414,7 @@ Forward:
 Info → Error
 ```
 
-### Error Processor
+#### Error Processor
 
 ```text
 current level = ERROR
@@ -443,13 +451,13 @@ write()
 
 ---
 
-# 12. Concrete Processors
+## 12. Concrete Processors
 
 There are four concrete handlers.
 
 ---
 
-## DebugLogProcessor
+### DebugLogProcessor
 
 ```java
 class DebugLogProcessor extends LogProcessor {
@@ -473,7 +481,7 @@ Handle DEBUG logs
 
 ---
 
-## InfoLogProcessor
+### InfoLogProcessor
 
 ```java
 class InfoLogProcessor extends LogProcessor {
@@ -497,7 +505,7 @@ Handle INFO logs
 
 ---
 
-## ErrorLogProcessor
+### ErrorLogProcessor
 
 ```java
 class ErrorLogProcessor extends LogProcessor {
@@ -521,7 +529,7 @@ Handle ERROR logs
 
 ---
 
-## FatalLogProcessor
+### FatalLogProcessor
 
 ```java
 class FatalLogProcessor extends LogProcessor {
@@ -545,7 +553,7 @@ Handle FATAL logs
 
 ---
 
-# 13. Client — LoggerDemo
+## 13. Client — LoggerDemo
 
 The client creates the processors and constructs the chain.
 
@@ -587,7 +595,7 @@ public class LoggerDemo {
 
 ---
 
-# 14. Chain Construction
+## 14. Chain Construction
 
 The chain is built inside:
 
@@ -630,7 +638,7 @@ The client gets the **first element of the chain**, not every processor.
 
 ---
 
-# 15. Final Object Graph
+## 15. Final Object Graph
 
 After construction:
 
@@ -672,7 +680,7 @@ which is the entry point to the complete chain.
 
 ---
 
-# 16. Complete Class Relationship
+## 16. Complete Class Relationship
 
 ```text
                          ┌──────────────────────────┐
@@ -742,7 +750,7 @@ This distinction is very important in an interview.
 
 ---
 
-# 17. Inheritance vs Chain
+## 17. Inheritance vs Chain
 
 A common confusion is:
 
@@ -754,7 +762,7 @@ and assuming this means inheritance.
 
 It does NOT.
 
-### Inheritance
+#### Inheritance
 
 ```text
 DebugLogProcessor
@@ -770,7 +778,7 @@ All concrete processors inherit from:
 LogProcessor
 ```
 
-### Chain
+#### Chain
 
 ```text
 Debug
@@ -790,7 +798,7 @@ The chain is a **runtime object relationship**, not an inheritance hierarchy.
 
 ---
 
-# 18. Chain of Responsibility Pattern
+## 18. Chain of Responsibility Pattern
 
 The general pattern looks like:
 
@@ -838,9 +846,9 @@ Fatal
 
 ---
 
-# 19. Why This Design Is Better Than `if-else`
+## 19. Why This Design Is Better Than `if-else`
 
-### Without Chain of Responsibility
+#### Without Chain of Responsibility
 
 ```java
 if (level == DEBUG) {
@@ -864,7 +872,7 @@ Problems:
 * Logic becomes harder to maintain.
 * Higher coupling.
 
-### With Chain of Responsibility
+#### With Chain of Responsibility
 
 ```java
 logger.logMessage(level, message);
@@ -882,7 +890,7 @@ Benefits:
 
 ---
 
-# 20. Adding a New Log Level
+## 20. Adding a New Log Level
 
 Suppose we introduce:
 
@@ -920,9 +928,9 @@ This demonstrates the **Open/Closed Principle**:
 
 ---
 
-# 21. SOLID Principles Used
+## 21. SOLID Principles Used
 
-## Single Responsibility Principle
+### Single Responsibility Principle
 
 Each concrete processor is responsible for one type of logging.
 
@@ -935,7 +943,7 @@ FatalProcessor → FATAL
 
 ---
 
-## Open/Closed Principle
+### Open/Closed Principle
 
 We can add:
 
@@ -949,7 +957,7 @@ without rewriting existing processors.
 
 ---
 
-## Dependency Inversion
+### Dependency Inversion
 
 The client works with:
 
@@ -970,7 +978,7 @@ The client depends on the abstraction.
 
 ---
 
-# 22. Important Interview Insight
+## 22. Important Interview Insight
 
 The most important design decision is:
 
@@ -995,7 +1003,7 @@ Handler
 
 ---
 
-# 23. Request Flow
+## 23. Request Flow
 
 For:
 
@@ -1037,11 +1045,11 @@ The client doesn't know any of these internal steps.
 
 ---
 
-# 24. Runtime Complexity
+## 24. Runtime Complexity
 
 If there are `N` processors in the chain:
 
-### Best case
+#### Best case
 
 The first processor handles the request:
 
@@ -1049,7 +1057,7 @@ The first processor handles the request:
 O(1)
 ```
 
-### Worst case
+#### Worst case
 
 The request travels through the entire chain:
 
@@ -1057,7 +1065,7 @@ The request travels through the entire chain:
 O(N)
 ```
 
-### Space
+#### Space
 
 The chain itself requires:
 
@@ -1077,7 +1085,7 @@ call-stack depth in the worst case.
 
 ---
 
-# 25. Important Design Tradeoff
+## 25. Important Design Tradeoff
 
 The chain provides flexibility, but the request may have to traverse several handlers.
 
@@ -1097,11 +1105,11 @@ For a very large processing chain, other approaches may be preferable depending 
 
 ---
 
-# 26. One Important Implementation Detail
+## 26. One Important Implementation Detail
 
 There are two common interpretations of Chain of Responsibility.
 
-### Variant A — Stop after handling
+#### Variant A — Stop after handling
 
 ```java
 if (this.level == level) {
@@ -1124,7 +1132,7 @@ Debug → Info → Error
                 STOP
 ```
 
-### Variant B — Continue after handling
+#### Variant B — Continue after handling
 
 ```java
 if (this.level == level) {
@@ -1150,7 +1158,7 @@ Debug → Info → Error → Fatal
 
 ---
 
-# 27. What the Client Should Know
+## 27. What the Client Should Know
 
 The client should know:
 
@@ -1179,7 +1187,7 @@ This is the core decoupling provided by the pattern.
 
 ---
 
-# 28. Interview Explanation — 30 Seconds
+## 28. Interview Explanation — 30 Seconds
 
 If asked:
 
@@ -1191,27 +1199,27 @@ Say:
 
 ---
 
-# 29. Interview Questions You Should Be Ready For
+## 29. Interview Questions You Should Be Ready For
 
-### Q1. Why Chain of Responsibility?
+#### Q1. Why Chain of Responsibility?
 
 Because the sender should not need to know which concrete handler processes the request.
 
 ---
 
-### Q2. Why is `LogProcessor` abstract?
+#### Q2. Why is `LogProcessor` abstract?
 
 Because it contains shared chain behavior but delegates the actual writing operation to concrete processors.
 
 ---
 
-### Q3. Why does every processor have `nextLoggerProcessor`?
+#### Q3. Why does every processor have `nextLoggerProcessor`?
 
 To forward requests through the chain.
 
 ---
 
-### Q4. Is DebugProcessor the parent of InfoProcessor?
+#### Q4. Is DebugProcessor the parent of InfoProcessor?
 
 No.
 
@@ -1225,7 +1233,7 @@ The DEBUG → INFO → ERROR → FATAL relationship is a runtime chain.
 
 ---
 
-### Q5. Who creates the chain?
+#### Q5. Who creates the chain?
 
 The client/factory method:
 
@@ -1235,7 +1243,7 @@ getChainOfLoggers()
 
 ---
 
-### Q6. Why doesn't the client directly call ErrorLogProcessor?
+#### Q6. Why doesn't the client directly call ErrorLogProcessor?
 
 Because that would tightly couple the client to concrete implementations.
 
@@ -1247,13 +1255,13 @@ logger.logMessage(ERROR, message);
 
 ---
 
-### Q7. What happens if a new log level is introduced?
+#### Q7. What happens if a new log level is introduced?
 
 Create another `LogProcessor` implementation and insert it into the chain.
 
 ---
 
-### Q8. What is the worst-case complexity?
+#### Q8. What is the worst-case complexity?
 
 For `N` processors:
 
@@ -1264,7 +1272,7 @@ Space: O(N)
 
 ---
 
-### Q9. Is this inheritance or composition?
+#### Q9. Is this inheritance or composition?
 
 Both are present, but for different purposes.
 
@@ -1282,7 +1290,7 @@ Processor → nextLoggerProcessor → Processor
 
 ---
 
-# 30. Mental Model
+## 30. Mental Model
 
 Remember the entire design using just this:
 
@@ -1338,7 +1346,7 @@ That distinction is the essence of this LLD.
 
 ---
 
-# 31. Staff-Level Deep Dive: Routing Semantics and Backpressure
+## 31. Staff-Level Deep Dive: Routing Semantics and Backpressure
 
 First decide what “ERROR” means. The current chain is exact-level routing: one processor matches `ERROR`. A common production logger instead applies a threshold (`ERROR` includes FATAL) and fans the record out to configured appenders. Those are different semantics; express threshold filtering and sink routing explicitly rather than relying on chain order.
 

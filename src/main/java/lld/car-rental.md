@@ -2,6 +2,14 @@
 
 ![Car rental system class diagram](resource/car-rental.png)
 
+## Revision Snapshot
+
+| Lens | Recall |
+| --- | --- |
+| Core model | Store + time-bounded vehicle reservation + quote + payment |
+| Design leverage | Pricing/payment policies are replaceable; reservation owns the booking interval |
+| Hard problem | Search is advisory; atomically prevent overlapping confirmed reservations and reconcile payment outcomes |
+
 ## 1. Problem Overview
 
 A Car Rental System allows users to:
@@ -16,7 +24,7 @@ A Car Rental System allows users to:
 
 The system should support multiple stores, vehicle types, users, reservations and payment methods.
 
-### Core entities
+#### Core entities
 
 ```text
 VehicleRentalSystem
@@ -42,11 +50,11 @@ VehicleRentalSystem
 
 ---
 
-# 2. Main Classes
+## 2. Main Classes
 
-## VehicleRentalSystem
+### VehicleRentalSystem
 
-### Responsibility
+#### Responsibility
 
 Acts as the **top-level entry point/facade** for the rental system.
 
@@ -57,7 +65,7 @@ storeList : List<Store>
 userList  : List<User>
 ```
 
-### Important operations
+#### Important operations
 
 ```text
 VehicleRentalSystem(storeList, userList)
@@ -65,7 +73,7 @@ VehicleRentalSystem(storeList, userList)
 getStore(location) : Store
 ```
 
-### Why this class exists
+#### Why this class exists
 
 The client should not need to directly know how stores are maintained.
 
@@ -85,11 +93,11 @@ This provides a single entry point into the system.
 
 ---
 
-# 3. User
+## 3. User
 
 Represents the customer renting a vehicle.
 
-### Fields
+#### Fields
 
 ```text
 userId          : int
@@ -97,7 +105,7 @@ userName        : String
 drivingLicense  : int
 ```
 
-### Relationship
+#### Relationship
 
 ```text
 VehicleRentalSystem 1 ─────── 1..* User
@@ -111,17 +119,17 @@ A user can make multiple reservations:
 User 1 ─────── 1..* Reservation
 ```
 
-### Important interview point
+#### Important interview point
 
 The `User` should be associated with a reservation rather than duplicating user information inside the reservation.
 
 ---
 
-# 4. Store
+## 4. Store
 
 A physical rental location where vehicles are managed and reservations are handled.
 
-### Fields
+#### Fields
 
 ```text
 storeId               : int
@@ -130,7 +138,7 @@ storeLocation         : Location
 reservations          : List<Reservation>
 ```
 
-### Operations
+#### Operations
 
 ```text
 getVehicles(vehicleType)
@@ -141,7 +149,7 @@ createReservation(vehicle, user)
 completeReservation(reservationId)
 ```
 
-### Relationships
+#### Relationships
 
 ```text
 VehicleRentalSystem
@@ -157,7 +165,7 @@ VehicleRentalSystem
         └── Reservations
 ```
 
-### Important responsibility
+#### Important responsibility
 
 The `Store` coordinates the rental operation.
 
@@ -165,11 +173,11 @@ It does **not** need to know how individual vehicle objects are implemented.
 
 ---
 
-# 5. Location
+## 5. Location
 
 Represents a physical location.
 
-### Fields
+#### Fields
 
 ```text
 address
@@ -179,13 +187,13 @@ state
 country
 ```
 
-### Constructor
+#### Constructor
 
 ```text
 Location(pincode, city, state, country)
 ```
 
-### Used by
+#### Used by
 
 * Store
 * Reservation pickup location
@@ -195,17 +203,17 @@ This avoids representing locations as plain strings throughout the system.
 
 ---
 
-# 6. VehicleInventoryManagement
+## 6. VehicleInventoryManagement
 
 Responsible for maintaining vehicles available at a store.
 
-### Field
+#### Field
 
 ```text
 vehicles : List<Vehicle>
 ```
 
-### Operations
+#### Operations
 
 ```text
 VehicleInventoryManagement(vehicles)
@@ -214,7 +222,7 @@ getVehicles()
 setVehicles(vehicles)
 ```
 
-### Relationship
+#### Relationship
 
 ```text
 Store
@@ -228,7 +236,7 @@ VehicleInventoryManagement
 1..* Vehicle
 ```
 
-### Why separate inventory management?
+#### Why separate inventory management?
 
 Without this class, `Store` would become responsible for:
 
@@ -241,11 +249,11 @@ Separating inventory gives us **better separation of responsibility**.
 
 ---
 
-# 7. Vehicle
+## 7. Vehicle
 
 `Vehicle` is the base class representing a rentable vehicle.
 
-## Fields
+### Fields
 
 ```text
 vehicleId
@@ -263,7 +271,7 @@ noOfSeat
 status
 ```
 
-### Important fields
+#### Important fields
 
 ```text
 vehicleType : VehicleType
@@ -274,7 +282,7 @@ These are represented using enums rather than arbitrary strings.
 
 ---
 
-# 8. VehicleType
+## 8. VehicleType
 
 Enum representing the category of vehicle.
 
@@ -304,7 +312,7 @@ Using an enum prevents invalid string values such as:
 
 ---
 
-# 9. Status
+## 9. Status
 
 Represents vehicle availability/state.
 
@@ -329,7 +337,7 @@ Vehicle should not be offered for rental
 
 ---
 
-# 10. Car and Bike
+## 10. Car and Bike
 
 Both specialize `Vehicle`.
 
@@ -347,7 +355,7 @@ Common vehicle properties remain in `Vehicle`.
 
 Specific vehicle behavior/properties can be added to subclasses later.
 
-### Why inheritance here?
+#### Why inheritance here?
 
 Because:
 
@@ -360,11 +368,11 @@ This represents an **IS-A relationship**.
 
 ---
 
-# 11. Reservation
+## 11. Reservation
 
 Reservation is the central entity in the rental workflow.
 
-## Fields
+### Fields
 
 ```text
 reservationId
@@ -382,7 +390,7 @@ reservationStatus
 location
 ```
 
-### Key relationships
+#### Key relationships
 
 ```text
 User
@@ -400,7 +408,7 @@ Reservation
 
 ---
 
-# 12. ReservationType
+## 12. ReservationType
 
 Defines how the vehicle is rented.
 
@@ -429,7 +437,7 @@ This distinction becomes important during bill calculation.
 
 ---
 
-# 13. ReservationStatus
+## 13. ReservationStatus
 
 Represents the lifecycle of a reservation.
 
@@ -440,7 +448,7 @@ COMPLETED
 CANCELLED
 ```
 
-### Typical lifecycle
+#### Typical lifecycle
 
 ```text
 SCHEDULED
@@ -463,13 +471,13 @@ CANCELLED
 
 This is effectively a **state machine**.
 
-### Interview point
+#### Interview point
 
 A real production design could encapsulate these transitions inside a dedicated state machine or state classes if the lifecycle becomes more complex.
 
 ---
 
-# 14. Reservation Creation
+## 14. Reservation Creation
 
 The store exposes:
 
@@ -500,11 +508,11 @@ The reservation is the central object connecting the rental transaction.
 
 ---
 
-# 15. Bill
+## 15. Bill
 
 A `Bill` represents the amount payable for a reservation.
 
-### Fields
+#### Fields
 
 ```text
 reservation
@@ -512,7 +520,7 @@ totalBillAmount
 isBillPaid
 ```
 
-### Operations
+#### Operations
 
 ```text
 Bill(reservation)
@@ -520,7 +528,7 @@ Bill(reservation)
 computeBillAmount()
 ```
 
-### Relationship
+#### Relationship
 
 ```text
 Reservation
@@ -544,17 +552,17 @@ totalBillAmount
 
 ---
 
-# 16. Bill Calculation
+## 16. Bill Calculation
 
 The calculation depends on the reservation type.
 
-### Hourly rental
+#### Hourly rental
 
 ```text
 hours × hourlyRentalCost
 ```
 
-### Daily rental
+#### Daily rental
 
 ```text
 days × dailyRentalCost
@@ -576,7 +584,7 @@ Reservation
             computeBillAmount()
 ```
 
-### Interview improvement
+#### Interview improvement
 
 For a more extensible design, bill calculation can be moved into a strategy:
 
@@ -594,11 +602,11 @@ This avoids a large `if/else` when rental types grow.
 
 ---
 
-# 17. Payment
+## 17. Payment
 
 `Payment` is responsible for processing the bill.
 
-### Operation
+#### Operation
 
 ```text
 payBill(bill)
@@ -630,11 +638,11 @@ These are different responsibilities.
 
 ---
 
-# 18. PaymentDetails
+## 18. PaymentDetails
 
 Contains information about an individual payment.
 
-### Fields
+#### Fields
 
 ```text
 paymentId
@@ -644,7 +652,7 @@ isRefundable
 paymentMode
 ```
 
-### Relationship
+#### Relationship
 
 ```text
 Payment
@@ -658,7 +666,7 @@ This separation allows payment processing logic and payment information to evolv
 
 ---
 
-# 19. PaymentMode
+## 19. PaymentMode
 
 Enum representing the payment mechanism.
 
@@ -682,7 +690,7 @@ WALLET
 
 ---
 
-# 20. Complete Relationship Map
+## 20. Complete Relationship Map
 
 The complete system can be mentally visualized as:
 
@@ -727,9 +735,9 @@ The complete system can be mentally visualized as:
 
 ---
 
-# 21. Complete Rental Flow
+## 21. Complete Rental Flow
 
-## Step 1 — Find Store
+### Step 1 — Find Store
 
 ```text
 User
@@ -748,7 +756,7 @@ The system identifies the appropriate rental store.
 
 ---
 
-## Step 2 — Search Vehicles
+### Step 2 — Search Vehicles
 
 ```text
 Store
@@ -767,7 +775,7 @@ The inventory component provides vehicles matching the requested type.
 
 ---
 
-## Step 3 — Select Vehicle
+### Step 3 — Select Vehicle
 
 ```text
 User
@@ -780,7 +788,7 @@ The user selects a vehicle based on availability, price, type, etc.
 
 ---
 
-## Step 4 — Create Reservation
+### Step 4 — Create Reservation
 
 ```text
 User
@@ -797,7 +805,7 @@ The reservation stores the complete rental context.
 
 ---
 
-## Step 5 — Generate Bill
+### Step 5 — Generate Bill
 
 ```text
 Reservation
@@ -814,7 +822,7 @@ totalBillAmount
 
 ---
 
-## Step 6 — Payment
+### Step 6 — Payment
 
 ```text
 Bill
@@ -831,7 +839,7 @@ PaymentMode
 
 ---
 
-## Step 7 — Complete Reservation
+### Step 7 — Complete Reservation
 
 After the vehicle is returned:
 
@@ -846,9 +854,9 @@ The store can complete the reservation.
 
 ---
 
-# 22. Why These Relationships Exist
+## 22. Why These Relationships Exist
 
-## Composition
+### Composition
 
 Example:
 
@@ -863,7 +871,7 @@ If the owner conceptually disappears, the owned component doesn't have an indepe
 
 ---
 
-## Association
+### Association
 
 Example:
 
@@ -877,7 +885,7 @@ These objects know about each other but don't necessarily own each other's lifec
 
 ---
 
-## Inheritance
+### Inheritance
 
 ```text
 Vehicle
@@ -890,7 +898,7 @@ Use inheritance because both are vehicles and share common properties.
 
 ---
 
-## Dependency
+### Dependency
 
 Enums and other types are used by classes:
 
@@ -906,9 +914,9 @@ PaymentDetails ──→ PaymentMode
 
 ---
 
-# 23. Important OOP Concepts Demonstrated
+## 23. Important OOP Concepts Demonstrated
 
-## Encapsulation
+### Encapsulation
 
 Data belongs to the class responsible for it.
 
@@ -924,7 +932,7 @@ Vehicle
 
 ---
 
-## Abstraction
+### Abstraction
 
 The client does not need to understand internal inventory management.
 
@@ -936,7 +944,7 @@ store.getVehicles(vehicleType)
 
 ---
 
-## Inheritance
+### Inheritance
 
 ```text
 Vehicle
@@ -947,7 +955,7 @@ Vehicle
 
 ---
 
-## Composition
+### Composition
 
 ```text
 Store
@@ -958,7 +966,7 @@ The store coordinates its inventory component.
 
 ---
 
-# 24. Separation of Responsibilities
+## 24. Separation of Responsibilities
 
 A key interview discussion is:
 
@@ -981,7 +989,7 @@ This prevents one giant `CarRentalSystem` class.
 
 ---
 
-# 25. Why Not Put Everything Inside Store?
+## 25. Why Not Put Everything Inside Store?
 
 A common bad design would be:
 
@@ -1018,9 +1026,9 @@ Each component has a clearer responsibility.
 
 ---
 
-# 26. SOLID Discussion
+## 26. SOLID Discussion
 
-## Single Responsibility Principle
+### Single Responsibility Principle
 
 Classes have focused responsibilities.
 
@@ -1033,7 +1041,7 @@ Payment → payment
 
 ---
 
-## Open/Closed Principle
+### Open/Closed Principle
 
 The vehicle hierarchy allows new vehicle types to be introduced without changing the base vehicle model.
 
@@ -1050,7 +1058,7 @@ Similarly, payment modes can be extended.
 
 ---
 
-## Liskov Substitution Principle
+### Liskov Substitution Principle
 
 A `Car` or `Bike` should be usable wherever a `Vehicle` is expected.
 
@@ -1066,7 +1074,7 @@ Vehicle vehicle = new Bike();
 
 ---
 
-## Interface Segregation
+### Interface Segregation
 
 Not heavily demonstrated in the current model, but becomes relevant when payment/inventory implementations grow.
 
@@ -1083,7 +1091,7 @@ CashPayment OnlinePayment
 
 ---
 
-## Dependency Inversion
+### Dependency Inversion
 
 The current design can be improved further by depending on abstractions for external services such as:
 
@@ -1098,11 +1106,11 @@ rather than concrete implementations.
 
 ---
 
-# 27. Design Patterns That Naturally Fit
+## 27. Design Patterns That Naturally Fit
 
 The current design is simple, but an interview can evolve it.
 
-## Strategy Pattern — Pricing
+### Strategy Pattern — Pricing
 
 Instead of:
 
@@ -1130,7 +1138,7 @@ This makes adding weekly/monthly pricing easier.
 
 ---
 
-## Factory Pattern — Vehicle Creation
+### Factory Pattern — Vehicle Creation
 
 Instead of directly constructing vehicles everywhere:
 
@@ -1152,7 +1160,7 @@ Useful when vehicle creation becomes complex.
 
 ---
 
-## Strategy Pattern — Payment
+### Strategy Pattern — Payment
 
 ```text
 PaymentStrategy
@@ -1167,11 +1175,11 @@ This is especially useful when payment providers are introduced.
 
 ---
 
-# 28. Important Edge Cases
+## 28. Important Edge Cases
 
 A production-level design must consider:
 
-### Vehicle unavailable
+#### Vehicle unavailable
 
 Two users should not successfully reserve the same vehicle for overlapping periods.
 
@@ -1186,7 +1194,7 @@ The system needs an availability check.
 
 ---
 
-### Concurrent reservations
+#### Concurrent reservations
 
 Two requests can arrive simultaneously.
 
@@ -1209,7 +1217,7 @@ Possible solutions:
 
 ---
 
-### Cancellation
+#### Cancellation
 
 ```text
 SCHEDULED
@@ -1222,7 +1230,7 @@ The vehicle must become available again.
 
 ---
 
-### Vehicle return
+#### Vehicle return
 
 On completion:
 
@@ -1245,7 +1253,7 @@ rather than only `ACTIVE/INACTIVE`.
 
 ---
 
-### Payment failure
+#### Payment failure
 
 Payment processing should not leave the reservation in an inconsistent state.
 
@@ -1271,7 +1279,7 @@ CANCELLED
 
 ---
 
-# 29. Interview-Level Improvements
+## 29. Interview-Level Improvements
 
 If the interviewer asks:
 
@@ -1279,7 +1287,7 @@ If the interviewer asks:
 
 Discuss these areas.
 
-### Availability
+#### Availability
 
 Move from:
 
@@ -1291,7 +1299,7 @@ towards a repository/query capable of efficiently finding vehicles available dur
 
 ---
 
-### Persistence
+#### Persistence
 
 Introduce:
 
@@ -1304,7 +1312,7 @@ StoreRepository
 
 ---
 
-### Payment Gateway
+#### Payment Gateway
 
 Introduce:
 
@@ -1321,7 +1329,7 @@ The rental system should not directly depend on a specific payment provider.
 
 ---
 
-### Notifications
+#### Notifications
 
 Introduce:
 
@@ -1338,7 +1346,7 @@ Reservation confirmation can trigger notifications.
 
 ---
 
-### Pricing
+#### Pricing
 
 Introduce:
 
@@ -1352,7 +1360,7 @@ Hourly Daily Weekly
 
 ---
 
-# 30. Key Interview Takeaways
+## 30. Key Interview Takeaways
 
 When explaining this design, remember these five layers:
 
@@ -1424,7 +1432,7 @@ Payment
    └── PaymentDetails
 ```
 
-### What to be ready to explain in an interview
+#### What to be ready to explain in an interview
 
 1. Why `Vehicle` is the parent of `Car` and `Bike`.
 2. Why inventory management is separated from `Store`.
@@ -1441,13 +1449,13 @@ Payment
 
 ---
 
-## One-line mental model
+### One-line mental model
 
 > **Store manages inventory, User makes a Reservation, Reservation generates a Bill, and Payment settles the Bill.**
 
 ---
 
-# 31. Staff-Level Deep Dive: Time-Based Inventory
+## 31. Staff-Level Deep Dive: Time-Based Inventory
 
 A vehicle is not simply `AVAILABLE` or `RENTED`; it is available for a requested interval. For half-open intervals `[start, end)`, two bookings overlap when:
 

@@ -1,6 +1,14 @@
-# Tic-Tac-Toe — Low Level Design Notes
+# Tic-Tac-Toe — Low-Level Design
 
 ![Tic-Tac-Toe class diagram](resource/TicTacToe.png)
+
+## Revision Snapshot
+
+| Lens | Recall |
+| --- | --- |
+| Core model | Game turn + board state + validated move |
+| Design leverage | Keep rules and board mutation centralized; incrementally track winning lines only when scale warrants it |
+| Hard problem | Reject stale/duplicate moves and keep derived win counters consistent with the board |
 
 ## 1. Problem Overview
 
@@ -17,7 +25,7 @@ Design a two-player Tic-Tac-Toe game where:
   * the anti-diagonal.
 * If the board becomes full without a winner, the game is a draw.
 
-### Core design idea
+#### Core design idea
 
 Separate the system into:
 
@@ -46,7 +54,7 @@ The repository implementation follows this decomposition.
 
 ---
 
-# 2. Class Responsibilities
+## 2. Class Responsibilities
 
 | Class           | Responsibility                            |
 | --------------- | ----------------------------------------- |
@@ -60,7 +68,7 @@ The repository implementation follows this decomposition.
 | `Pair<K,V>`     | Represents a board coordinate             |
 | `Main`          | Application entry point                   |
 
-### Important design principle
+#### Important design principle
 
 `TicTacToeGame` should **coordinate** the game, while `Board` should be responsible for board-specific operations.
 
@@ -68,9 +76,9 @@ This avoids putting all logic into one giant class.
 
 ---
 
-# 3. `TicTacToeGame`
+## 3. `TicTacToeGame`
 
-## Responsibility
+### Responsibility
 
 The game controller coordinates:
 
@@ -81,14 +89,14 @@ The game controller coordinates:
 * winner detection
 * draw detection
 
-### Important fields
+#### Important fields
 
 ```java
 Deque<Player> players;
 Board gameBoard;
 ```
 
-### Why `Deque<Player>`?
+#### Why `Deque<Player>`?
 
 The implementation uses a queue-like rotation:
 
@@ -121,7 +129,7 @@ So the order automatically becomes:
 P1 → P2 → P1 → P2 → ...
 ```
 
-### Invalid move
+#### Invalid move
 
 If the selected cell is already occupied:
 
@@ -135,7 +143,7 @@ This is a subtle but important design detail.
 
 ---
 
-# 4. Game Initialization
+## 4. Game Initialization
 
 `initializeGame()` creates the complete initial state.
 
@@ -159,7 +167,7 @@ players.offer(player2);
 gameBoard = new Board(3);
 ```
 
-### Object graph
+#### Object graph
 
 ```text
 TicTacToeGame
@@ -179,13 +187,13 @@ TicTacToeGame
 
 ---
 
-# 5. `Board`
+## 5. `Board`
 
-## Responsibility
+### Responsibility
 
 `Board` owns the physical game state.
 
-### Fields
+#### Fields
 
 ```java
 int size;
@@ -219,9 +227,9 @@ null
 
 ---
 
-# 6. `Board.addPiece()`
+## 6. `Board.addPiece()`
 
-### Purpose
+#### Purpose
 
 Place a piece only if the target cell is empty.
 
@@ -244,7 +252,7 @@ board[row][column] = playingPiece;
 return true;
 ```
 
-### Why return `boolean`?
+#### Why return `boolean`?
 
 The caller needs to know whether the move succeeded.
 
@@ -260,7 +268,7 @@ This keeps move validation close to the board rather than duplicating it inside 
 
 ---
 
-# 7. `Board.getFreeCells()`
+## 7. `Board.getFreeCells()`
 
 Returns all currently empty positions.
 
@@ -296,7 +304,7 @@ Free cells:
 (2,2)
 ```
 
-### Complexity
+#### Complexity
 
 For an `N × N` board:
 
@@ -309,7 +317,7 @@ because every board cell is scanned and free coordinates are stored.
 
 ---
 
-# 8. `Board.printBoard()`
+## 8. `Board.printBoard()`
 
 Responsible only for displaying the current board.
 
@@ -323,7 +331,7 @@ X | O | X |
 O |   | X |
 ```
 
-### Design observation
+#### Design observation
 
 Printing is presentation logic.
 
@@ -347,13 +355,13 @@ and
 
 ---
 
-# 9. `Player`
+## 9. `Player`
 
-## Responsibility
+### Responsibility
 
 Represents a participant.
 
-### Fields
+#### Fields
 
 ```java
 String name;
@@ -372,7 +380,7 @@ Player
           └── X / O
 ```
 
-### Relationship
+#### Relationship
 
 ```text
 Player 1 ─────── 1 PlayingPiece
@@ -383,19 +391,19 @@ Each player owns exactly one playing piece in this implementation.
 
 ---
 
-# 10. `PlayingPiece`
+## 10. `PlayingPiece`
 
-## Responsibility
+### Responsibility
 
 Represents the common abstraction for pieces placed on the board.
 
-### Field
+#### Field
 
 ```java
 PieceType pieceType;
 ```
 
-### Constructor
+#### Constructor
 
 ```java
 PlayingPiece(PieceType pieceType)
@@ -405,7 +413,7 @@ The constructor establishes the piece's type.
 
 ---
 
-# 11. `PlayingPieceX` and `PlayingPieceO`
+## 11. `PlayingPieceX` and `PlayingPieceO`
 
 These are specialized versions of `PlayingPiece`.
 
@@ -417,7 +425,7 @@ These are specialized versions of `PlayingPiece`.
  PlayingPieceX      PlayingPieceO
 ```
 
-### `PlayingPieceX`
+#### `PlayingPieceX`
 
 ```java
 public PlayingPieceX() {
@@ -425,7 +433,7 @@ public PlayingPieceX() {
 }
 ```
 
-### `PlayingPieceO`
+#### `PlayingPieceO`
 
 ```java
 public PlayingPieceO() {
@@ -433,7 +441,7 @@ public PlayingPieceO() {
 }
 ```
 
-### Why have subclasses?
+#### Why have subclasses?
 
 Instead of constructing:
 
@@ -453,7 +461,7 @@ It also provides an extension point for future piece-specific behavior.
 
 ---
 
-# 12. `PieceType`
+## 12. `PieceType`
 
 An enum:
 
@@ -464,7 +472,7 @@ enum PieceType {
 }
 ```
 
-### Why enum instead of String?
+#### Why enum instead of String?
 
 Avoid:
 
@@ -491,7 +499,7 @@ It also makes comparisons type-safe.
 
 ---
 
-# 13. `Pair<K,V>`
+## 13. `Pair<K,V>`
 
 The board uses a pair to represent coordinates returned by `getFreeCells()`.
 
@@ -524,7 +532,7 @@ This is a utility/data-holder relationship rather than a core domain object.
 
 ---
 
-# 14. Winner Detection
+## 14. Winner Detection
 
 This is the most algorithmically important part of the implementation.
 
@@ -549,7 +557,7 @@ The implementation checks four possibilities:
 
 ---
 
-# 15. Row Check
+## 15. Row Check
 
 Given the last move:
 
@@ -581,7 +589,7 @@ Otherwise:
 rowMatch = false
 ```
 
-### Complexity
+#### Complexity
 
 ```text
 O(N)
@@ -589,7 +597,7 @@ O(N)
 
 ---
 
-# 16. Column Check
+## 16. Column Check
 
 Same idea, but scan vertically.
 
@@ -620,7 +628,7 @@ O(N)
 
 ---
 
-# 17. Main Diagonal
+## 17. Main Diagonal
 
 The main diagonal consists of:
 
@@ -666,7 +674,7 @@ O(N)
 
 ---
 
-# 18. Anti-Diagonal
+## 18. Anti-Diagonal
 
 The anti-diagonal consists of:
 
@@ -703,7 +711,7 @@ O(N)
 
 ---
 
-# 19. Overall Winner Algorithm
+## 19. Overall Winner Algorithm
 
 The final condition is effectively:
 
@@ -726,7 +734,7 @@ Winner?
    └── Otherwise          → NO
 ```
 
-### Complexity
+#### Complexity
 
 Although four checks are performed:
 
@@ -747,7 +755,7 @@ This is an important interview point.
 
 ---
 
-# 20. Complete Game Flow
+## 20. Complete Game Flow
 
 ```text
              START
@@ -807,32 +815,32 @@ This is an important interview point.
 
 ---
 
-# 21. State Ownership
+## 21. State Ownership
 
 A useful LLD interview concept is **who owns what state?**
 
-### `TicTacToeGame` owns
+#### `TicTacToeGame` owns
 
 ```text
 players
 gameBoard
 ```
 
-### `Board` owns
+#### `Board` owns
 
 ```text
 size
 board[][]
 ```
 
-### `Player` owns
+#### `Player` owns
 
 ```text
 name
 playingPiece
 ```
 
-### `PlayingPiece` owns
+#### `PlayingPiece` owns
 
 ```text
 pieceType
@@ -852,9 +860,9 @@ Game
 
 ---
 
-# 22. Key Relationships
+## 22. Key Relationships
 
-### Game → Player
+#### Game → Player
 
 ```text
 TicTacToeGame
@@ -866,7 +874,7 @@ TicTacToeGame
 
 The game maintains a collection of players.
 
-### Game → Board
+#### Game → Board
 
 ```text
 TicTacToeGame
@@ -878,7 +886,7 @@ TicTacToeGame
 
 The game uses one board.
 
-### Player → PlayingPiece
+#### Player → PlayingPiece
 
 ```text
 Player
@@ -890,7 +898,7 @@ PlayingPiece
 
 Each player has one piece.
 
-### Board → PlayingPiece
+#### Board → PlayingPiece
 
 ```text
 Board
@@ -902,7 +910,7 @@ PlayingPiece
 
 Each occupied board cell references a playing piece.
 
-### Inheritance
+#### Inheritance
 
 ```text
 PlayingPiece
@@ -913,7 +921,7 @@ PlayingPiece
  X        O
 ```
 
-### Enum association
+#### Enum association
 
 ```text
 PlayingPiece
@@ -928,7 +936,7 @@ PlayingPiece
 
 ---
 
-# 23. Why `PlayingPiece` Is Useful
+## 23. Why `PlayingPiece` Is Useful
 
 At first glance, we could simply store:
 
@@ -944,7 +952,7 @@ PlayingPiece[][] board;
 
 The current design chooses the latter.
 
-### Advantage
+#### Advantage
 
 The board works with the abstraction:
 
@@ -976,7 +984,7 @@ without changing the board's fundamental representation.
 
 ---
 
-# 24. Why `Deque` Instead of an Integer Turn Index?
+## 24. Why `Deque` Instead of an Integer Turn Index?
 
 Alternative:
 
@@ -1002,7 +1010,7 @@ player takes turn
 addLast()
 ```
 
-### Benefit
+#### Benefit
 
 Turn management becomes an explicit data structure operation.
 
@@ -1016,7 +1024,7 @@ The player remains at the front.
 
 ---
 
-# 25. Important Design Observation: Game Controller
+## 25. Important Design Observation: Game Controller
 
 `TicTacToeGame` is effectively the **orchestrator/controller**.
 
@@ -1048,11 +1056,11 @@ This is a good separation of responsibilities.
 
 ---
 
-# 26. Important Interview Discussion: Current Design vs Production Design
+## 26. Important Interview Discussion: Current Design vs Production Design
 
 The current implementation is intentionally simple and interview-oriented.
 
-### Current implementation
+#### Current implementation
 
 ```text
 TicTacToeGame
@@ -1086,9 +1094,9 @@ This would improve testability and extensibility.
 
 ---
 
-# 27. Most Important SOLID / OOP Concepts
+## 27. Most Important SOLID / OOP Concepts
 
-## Encapsulation
+### Encapsulation
 
 Board-specific state is grouped inside:
 
@@ -1110,7 +1118,7 @@ PlayingPiece
 
 ---
 
-## Abstraction
+### Abstraction
 
 The board operates on:
 
@@ -1127,7 +1135,7 @@ PlayingPieceO
 
 ---
 
-## Inheritance
+### Inheritance
 
 ```text
 PlayingPiece
@@ -1141,7 +1149,7 @@ Concrete pieces reuse the common base class.
 
 ---
 
-## Polymorphism
+### Polymorphism
 
 The board stores:
 
@@ -1158,7 +1166,7 @@ PlayingPieceO
 
 ---
 
-## Single Responsibility
+### Single Responsibility
 
 The major classes have relatively distinct responsibilities:
 
@@ -1171,7 +1179,7 @@ Piece  → piece state
 
 ---
 
-# 28. Complexity Summary
+## 28. Complexity Summary
 
 For an `N × N` board:
 
@@ -1196,11 +1204,11 @@ space.
 
 ---
 
-# 29. Potential Improvements — Interview Discussion
+## 29. Potential Improvements — Interview Discussion
 
 These are **not claims about the current repository implementation**. They are useful follow-up discussion points if an interviewer asks, "How would you improve this design?"
 
-### 1. Separate input from game logic
+## 1. Separate input from game logic
 
 Current:
 
@@ -1220,7 +1228,7 @@ GameController
 
 ---
 
-### 2. Separate rendering
+## 2. Separate rendering
 
 Instead of:
 
@@ -1248,7 +1256,7 @@ without modifying the board.
 
 ---
 
-### 3. Extract winning strategy
+## 3. Extract winning strategy
 
 Instead of hardcoding:
 
@@ -1281,7 +1289,7 @@ This becomes useful for larger or variant games.
 
 ---
 
-### 4. Represent a move explicitly
+## 4. Represent a move explicitly
 
 Instead of passing:
 
@@ -1305,7 +1313,7 @@ This becomes more scalable as game rules grow.
 
 ---
 
-### 5. Track occupied cells
+## 5. Track occupied cells
 
 The current implementation calls:
 
@@ -1331,21 +1339,21 @@ immediately determines whether the board is full.
 
 ---
 
-# 30. Interview Questions You Should Be Ready For
+## 30. Interview Questions You Should Be Ready For
 
-### Q1. Why is `PlayingPiece` a class instead of directly using `PieceType`?
+#### Q1. Why is `PlayingPiece` a class instead of directly using `PieceType`?
 
 Because it provides an abstraction for pieces and allows concrete piece implementations to be introduced independently of the board.
 
 ---
 
-### Q2. Why use `PlayingPiece[][]`?
+#### Q2. Why use `PlayingPiece[][]`?
 
 The board can store the common piece abstraction while remaining independent of concrete `X`/`O` implementations.
 
 ---
 
-### Q3. Why use a `Deque<Player>`?
+#### Q3. Why use a `Deque<Player>`?
 
 It provides simple turn rotation using:
 
@@ -1362,13 +1370,13 @@ addFirst()
 
 ---
 
-### Q4. What happens when a player chooses an occupied cell?
+#### Q4. What happens when a player chooses an occupied cell?
 
 `Board.addPiece()` returns `false`, and the current player is placed back at the front of the deque.
 
 ---
 
-### Q5. How is a winner detected?
+#### Q5. How is a winner detected?
 
 Only the row, column, main diagonal, and anti-diagonal associated with the latest move need to be checked.
 
@@ -1376,7 +1384,7 @@ The current implementation scans those four lines.
 
 ---
 
-### Q6. What is the complexity of winner detection?
+#### Q6. What is the complexity of winner detection?
 
 ```text
 O(N)
@@ -1386,7 +1394,7 @@ for an `N × N` board.
 
 ---
 
-### Q7. How would you support a 4×4 board?
+#### Q7. How would you support a 4×4 board?
 
 The current board already uses:
 
@@ -1412,7 +1420,7 @@ rather than a fixed `3`.
 
 ---
 
-### Q8. How would you support an AI?
+#### Q8. How would you support an AI?
 
 Introduce a player abstraction or strategy:
 
@@ -1429,7 +1437,7 @@ The game controller should ask the current player for a move rather than directl
 
 ---
 
-### Q9. How would you make the game testable?
+#### Q9. How would you make the game testable?
 
 Separate:
 
@@ -1454,13 +1462,13 @@ without requiring `Scanner` or console output.
 
 ---
 
-# 31. 30-Second Interview Explanation
+## 31. 30-Second Interview Explanation
 
 > "I modelled Tic-Tac-Toe around a game controller, board, player and playing-piece hierarchy. `TicTacToeGame` owns the turn flow and a `Deque<Player>` so players can be rotated efficiently. `Board` owns an N×N `PlayingPiece` matrix and exposes operations for adding pieces and finding free cells. A player owns one `PlayingPiece`, while `PlayingPieceX` and `PlayingPieceO` specialize the base `PlayingPiece` using the `PieceType` enum. After every valid move, the game checks the corresponding row, column, main diagonal and anti-diagonal for a win. This keeps board state, player state, piece representation and game orchestration reasonably separated."
 
 ---
 
-# 32. Mental Model to Remember
+## 32. Mental Model to Remember
 
 ```text
                  GAME
@@ -1501,7 +1509,7 @@ Retry    Rotate
                   └──→ repeat
 ```
 
-## Core takeaway
+### Core takeaway
 
 The most important LLD lesson from this implementation is **separation of game orchestration from domain objects**:
 
@@ -1517,7 +1525,7 @@ That mental model is more important for an LLD interview than memorizing the ind
 
 ---
 
-# 33. Staff-Level Deep Dive: Constant-Time Move Evaluation
+## 33. Staff-Level Deep Dive: Constant-Time Move Evaluation
 
 For a small board, scanning the affected row, column, and diagonals is the clearest design. If move volume or board size makes that expensive, maintain per-player counts for each row, column, and diagonal. A move then updates at most four counters and detects a win in `O(1)` time, with `O(N)` auxiliary state per player. The trade-off is duplicated derived state, so update the board and counters together in one move operation and test them against a slower reference implementation.
 
